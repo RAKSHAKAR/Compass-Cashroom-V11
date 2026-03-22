@@ -88,18 +88,6 @@ We maintain a decoupled architecture. You will need to run the backend and front
 
    ```
 
-### Docker Setup (Optional but Recommended)
-
-For a fully isolated environment that mirrors production:
-```bash
-# Builds the images and starts the containers. By default, this uses your local development setup (likely utilizing a lightweight SQLite database).
-docker compose up --build
-
-# The --profile prod flag tells Docker to boot up specific services tagged for production. In this case, it swaps out SQLite and spins up a full PostgreSQL database container alongside your app.
-docker compose --profile prod up --build
-```
-
----
 
 ## 2. Mail Server Testing
 
@@ -134,6 +122,34 @@ If your local database gets out of sync or corrupted, use the following utilitie
 * **Demo Data (Charts/Submissions):** `python seed_demo.py`
 
 ---
+
+### Docker Setup (Optional but Recommended)
+
+For a fully isolated environment that mirrors production:
+```bash
+# Builds the images and starts the containers. By default, this uses your local development setup (likely utilizing a lightweight SQLite database).
+docker compose up --build
+
+# The --profile prod flag tells Docker to boot up specific services tagged for production. In this case, it swaps out SQLite and spins up a full PostgreSQL database container alongside your app.
+docker compose --profile prod up --build
+```
+
+---
+
+Whenever you make code changes or want to start the system, open your terminal (PowerShell/CMD/Bash) in the root directory and run the following command to clean up old instances and build fresh containers:
+
+**For Windows (PowerShell):**
+
+```powershell
+docker-compose down --remove-orphans ; docker-compose up -d --build
+```
+
+**For Mac/Linux/Git Bash:**
+
+```bash
+docker-compose down --remove-orphans && docker-compose up -d --build
+```
+
 
 ## 4. Strict Git Hygiene & Security (Mandatory)
 

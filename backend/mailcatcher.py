@@ -165,8 +165,14 @@ class ApiHandler(BaseHTTPRequestHandler):
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    smtp_host, smtp_port = "0.0.0.0", 1025
-    http_host, http_port = "0.0.0.0", 1080
+    
+    #In Dockerfile, we set SMTP_HOST=
+    # smtp_host, smtp_port = "0.0.0.0", 1025
+    # http_host, http_port = "0.0.0.0", 1080
+
+    #In PowerShel we set SMTP_HOST=
+    smtp_host, smtp_port = "127.0.0.1", 1025
+    http_host, http_port = "127.0.0.1", 1080
 
     # Start SMTP server
     ctrl = Controller(PrintingHandler(), hostname=smtp_host, port=smtp_port)
