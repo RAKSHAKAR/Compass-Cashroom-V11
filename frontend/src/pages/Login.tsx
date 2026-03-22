@@ -262,7 +262,13 @@ export default function Login({ onLogin }: LoginProps) {
                 maxLength={6}
                 value={otp}
                 onChange={e => { setOtp(e.target.value.replace(/\D/g, '')); setFpError('') }}
-                onKeyDown={e => e.key === 'Enter' && handleOtpNext()}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault(); // This stops the 401 Unauthorized login trigger
+                    e.stopPropagation(); 
+                    handleOtpNext();    // This triggers the 400 Bad Request if the code is wrong
+                  }
+                }}
                 autoFocus
                 style={{ letterSpacing: '0.2em', fontSize: 20, textAlign: 'center' }}
               />
@@ -276,10 +282,22 @@ export default function Login({ onLogin }: LoginProps) {
 
             <div style={{ textAlign: 'center', marginTop: 12, display: 'flex', justifyContent: 'center', gap: 16 }}>
               <button
-                onClick={() => { setFpError(''); setView('forgot') }}
+                onClick={async () => { 
+                  setFpError(''); 
+                  setFpLoading(true);
+                  try {
+                    await handleForgotSubmit(); 
+                    setSuccessMsg('A new code has been sent.');
+                  } catch {
+                    setFpError('Failed to resend code. Please try again.');
+                  } finally {
+                    setFpLoading(false);
+                  }
+                }}
+                disabled={fpLoading}
                 style={{ background: 'none', border: 'none', color: 'var(--g7)', fontSize: 12, cursor: 'pointer', textDecoration: 'underline' }}
               >
-                Resend code
+                {fpLoading ? 'Sending...' : 'Resend code'}
               </button>
               <button onClick={backToLogin} style={{ background: 'none', border: 'none', color: 'var(--ts)', fontSize: 12, cursor: 'pointer' }}>
                 ← Back to sign in

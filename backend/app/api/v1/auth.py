@@ -108,12 +108,17 @@ def forgot_password(
     user = db.query(User).filter(User.email == body.email.lower().strip()).first()
     if user and user.active:
         otp = f"{secrets.randbelow(1_000_000):06d}"
+        # Invalidate any old token by generating a fresh one and updating the expiry
+        # Overwrite the old token and reset the 15-minute expiry window
         user.password_reset_token = hash_password(otp)
         user.password_reset_expires = datetime.utcnow() + timedelta(minutes=15)
+        
+        # Explicitly update the debug store to prevent stale codes in local testing
+        if settings.DEBUG:
+            _debug_otp_store[user.email.lower().strip()] = otp
+            
         db.commit()
         send_password_reset_background(background, user.email, user.name, otp)
-        if settings.DEBUG:
-            _debug_otp_store[user.email.lower()] = otp
     # Always return 200 — never reveal whether the email exists
     return MessageResponse(message="If that email is registered, a reset code has been sent.")
 
