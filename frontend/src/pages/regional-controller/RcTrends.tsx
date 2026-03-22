@@ -494,7 +494,7 @@ export default function RcTrends({ adminName }: Props) {
                 width={60}
               />
               <Tooltip
-                formatter={(value: any) => [formatCurrency(value ?? 0), activeSec.label]}
+                formatter={(value: unknown) => [formatCurrency(Number(value) || 0), activeSec.label]}
                 contentStyle={{
                   fontSize: 12, borderRadius: 8,
                   border: `1px solid ${activeSec.color}40`,
