@@ -7,6 +7,7 @@ import { listLocations } from '../../api/locations'
 import type { ApiVerification, ApiLocation } from '../../api/types'
 import KpiCard from '../../components/KpiCard'
 
+
 function mapApiVerification(v: ApiVerification): VerificationRecord {
   return {
     id: v.id,

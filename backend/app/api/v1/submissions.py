@@ -258,6 +258,35 @@ def update_draft(
     return _to_out(s)
 
 
+# ── Delete draft ──────────────────────────────────────────────────────────────
+
+@router.delete("/submissions/{submission_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_draft(
+    submission_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    s = db.get(Submission, submission_id)
+    if not s:
+        raise HTTPException(status_code=404, detail="Submission not found")
+    
+    # Secure Isolation: Operator can only delete their own submissions
+    if current_user.role == UserRole.OPERATOR and s.operator_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied. You can only delete your own drafts.")
+        
+    # Controllers/Admins might have deletion rights, but primarily this is for Operators deleting DRAFTS
+    if s.status != SubmissionStatus.DRAFT:
+        raise HTTPException(status_code=400, detail="Only draft submissions can be deleted.")
+
+    db.delete(s)
+    log_event(db, current_user, "SUBMISSION_DELETED",
+              f"Draft submission deleted for {s.location_name} on {s.submission_date}",
+              location_id=s.location_id, location_name=s.location_name,
+              entity_id=s.id, entity_type="Submission")
+    db.commit()
+    return
+
+
 # ── Submit draft ──────────────────────────────────────────────────────────────
 
 @router.post("/submissions/{submission_id}/submit", response_model=SubmissionOut)
