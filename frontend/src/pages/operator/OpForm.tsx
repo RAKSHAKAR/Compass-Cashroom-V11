@@ -18,6 +18,9 @@ interface ExcelPrefill {
   sections: { A: number; B: number; C: number; D: number; E: number; F: number; G: number; H: number; I: number }
   totalFund: number
   fileName: string
+  holdover?: number
+  coinTransit?: number
+  varianceNote?: string
 }
 
 function getExcelPrefill(ctx: Record<string, string>): ExcelPrefill | null {
@@ -45,7 +48,10 @@ function getExcelPrefill(ctx: Record<string, string>): ExcelPrefill | null {
           },
           sections: { A: 0, B: 0, C: 0, D: 0, E: 0, F: 0, G: 0, H: 0, I: 0 },
           totalFund: 0,
-          fileName: 'Previous Submission'
+          fileName: 'Previous Submission',
+          holdover: d.holdover,
+          coinTransit: d.coinTransit,
+          varianceNote: d.varianceNote
         }
       }
     } catch {
@@ -67,7 +73,10 @@ function getExcelPrefill(ctx: Record<string, string>): ExcelPrefill | null {
           },
           sections: { A: 0, B: 0, C: 0, D: 0, E: 0, F: 0, G: 0, H: 0, I: 0 },
           totalFund: 0,
-          fileName: 'Saved Draft'
+          fileName: 'Saved Draft',
+          holdover: d.holdover,
+          coinTransit: d.coinTransit,
+          varianceNote: d.varianceNote
         }
       }
     } catch {
@@ -265,9 +274,9 @@ export default function OpForm({ ctx, onNavigate }: Props) {
   const [hVal,       setHVal]       = useState(() => { const pf = getExcelPrefill(ctx); return pf?.denomDetail.H?.value      ? String(pf.denomDetail.H.value)      : '' })
   const [iYest,      setIYest]      = useState(() => { const pf = getExcelPrefill(ctx); return pf?.denomDetail.I?.yesterday  ? String(pf.denomDetail.I.yesterday)  : '' })
   const [iToday,     setIToday]     = useState(() => { const pf = getExcelPrefill(ctx); return pf?.denomDetail.I?.today      ? String(pf.denomDetail.I.today)      : '' })
-  const [holdover,   setHoldover]   = useState('')
-  const [coinTransit,setCoinTransit]= useState('')
-  const [varianceNote, setVarianceNote] = useState('')
+  const [holdover,   setHoldover]   = useState(() => { const pf = getExcelPrefill(ctx); return pf?.holdover !== undefined ? String(pf.holdover) : '' })
+  const [coinTransit,setCoinTransit]= useState(() => { const pf = getExcelPrefill(ctx); return pf?.coinTransit !== undefined ? String(pf.coinTransit) : '' })
+  const [varianceNote, setVarianceNote] = useState(() => { const pf = getExcelPrefill(ctx); return pf?.varianceNote ? String(pf.varianceNote) : '' })
   const [submitError,  setSubmitError]  = useState('')
   const [submitting,   setSubmitting]   = useState(false)
   const [draftId,      setDraftId]      = useState<string | null>(ctx.draftId ?? null)
@@ -275,16 +284,17 @@ export default function OpForm({ ctx, onNavigate }: Props) {
   // ── Pre-fill from API when editing a rejected submission ───────────────────
   useEffect(() => {
     if (!ctx.submissionId || ctx.fromExcel === 'true') return
-    // Skip if sessionStorage already has denom data (same session)
-    if (sessionStorage.getItem(`denom_${ctx.submissionId}`)) return
+    const hasCache = !!sessionStorage.getItem(`denom_${ctx.submissionId}`)
+    
     getSubmission(ctx.submissionId).then(sub => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const s = sub.sections as Record<string, any>
       const emptyQA5 = (): QARow[] => [emptyQA(), emptyQA(), emptyQA(), emptyQA(), emptyQA()]
       const emptyQA4 = (): QARow[] => [emptyQA(), emptyQA(), emptyQA(), emptyQA()]
 
-      const a = s.A ?? {}
-      setAQty({
+      if (!hasCache) {
+        const a = s.A ?? {}
+        setAQty({
         ones:     a.ones     ? String(a.ones)     : '',
         twos:     a.twos     ? String(a.twos)     : '',
         fives:    a.fives    ? String(a.fives)    : '',
@@ -333,11 +343,20 @@ export default function OpForm({ ctx, onNavigate }: Props) {
       if (h.value) setHVal(String(h.value))
 
       const i = s.I ?? {}
-      if (i.yesterday) setIYest(String(i.yesterday))
-      if (i.today) setIToday(String(i.today))
+        if (i.yesterday) setIYest(String(i.yesterday))
+        if (i.today) setIToday(String(i.today))
+      }
 
-      if (s.holdover) setHoldover(String(s.holdover))
-      if (s.coin_transit) setCoinTransit(String(s.coin_transit))
+      // Always populate these fields if they are empty, as older session caches may lack them
+      if (s.holdover !== undefined && s.holdover !== null) {
+        setHoldover(prev => prev === '' ? String(s.holdover) : prev)
+      }
+      if (s.coin_transit !== undefined && s.coin_transit !== null) {
+        setCoinTransit(prev => prev === '' ? String(s.coin_transit) : prev)
+      }
+      if (sub.variance_note) {
+        setVarianceNote(prev => prev === '' ? (sub.variance_note ?? '') : prev)
+      }
     }).catch(() => { /* keep empty if fetch fails */ })
   }, [ctx.submissionId]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -437,6 +456,9 @@ export default function OpForm({ ctx, onNavigate }: Props) {
       G: { currency: parseFloat(gCurr)||0, coin: parseFloat(gCoin)||0 },
       H: { value: parseFloat(hVal)||0 },
       I: { yesterday: parseFloat(iYest)||0, today: parseFloat(iToday)||0 },
+      holdover: holdoverAmt,
+      coinTransit: coinTransAmt,
+      varianceNote: requiresNote ? varianceNote.trim() : ''
     }
     try {
       let submissionId: string
@@ -531,6 +553,9 @@ export default function OpForm({ ctx, onNavigate }: Props) {
       G: { currency: parseFloat(gCurr)||0, coin: parseFloat(gCoin)||0 },
       H: { value: parseFloat(hVal)||0 },
       I: { yesterday: parseFloat(iYest)||0, today: parseFloat(iToday)||0 },
+      holdover: holdoverAmt,
+      coinTransit: coinTransAmt,
+      varianceNote: varianceNote.trim()
     }
 
     try {

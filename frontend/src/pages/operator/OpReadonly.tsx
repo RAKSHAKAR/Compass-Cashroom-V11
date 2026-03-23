@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { SUBMISSIONS, SUBMISSION_REVIEWS, saveSubmissionReview, getLocation, formatCurrency, IMPREST, todayStr } from '../../mock/data'
+import { SUBMISSIONS, SUBMISSION_REVIEWS, saveSubmissionReview, getLocation, formatCurrency, todayStr } from '../../mock/data'
 import type { Submission, SubmissionReview } from '../../mock/data'
 import { getSubmission, approveSubmission, rejectSubmission } from '../../api/submissions'
 import KpiCard from '../../components/KpiCard'
@@ -111,6 +111,8 @@ export default function OpReadonly({ ctx, onNavigate }: Props) {
           submittedAt: s.submitted_at ?? s.created_at,
           approvedBy: s.approved_by ?? undefined, approvedByName: s.approved_by_name ?? undefined,
           rejectionReason: s.rejection_reason ?? undefined,
+          varianceNote: s.variance_note ?? undefined,
+          varianceException: !!s.variance_note,
           sections: {
             A: typeof s.sections['A'] === 'number' ? s.sections['A'] : (s.sections['A'] as { total?: number })?.total ?? 0,
             B: typeof s.sections['B'] === 'number' ? s.sections['B'] : (s.sections['B'] as { total?: number })?.total ?? 0,
@@ -289,7 +291,6 @@ export default function OpReadonly({ ctx, onNavigate }: Props) {
 
   const dateLabel      = new Date(sub.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
   const submittedLabel = new Date(sub.submittedAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
-  const varColor       = Math.abs(sub.variancePct) > 5 ? 'var(--red)' : Math.abs(sub.variancePct) > 2 ? 'var(--amb)' : 'var(--g7)'
   const isToday        = sub.date === todayStr()
   const pastRejected   = !isToday && effStatus === 'rejected'
 
@@ -302,6 +303,16 @@ export default function OpReadonly({ ctx, onNavigate }: Props) {
   const sc = statusConfig[effStatus] ?? statusConfig['pending_approval']
 
   const s = sub.sections
+  const holdoverAmt = (s as unknown as Record<string, number>).holdover || 0
+  const coinTransitAmt = (s as unknown as Record<string, number>).coinTransit || 0
+  const calcTotalCash = s.A + s.B + s.C + s.D + s.E + s.F + s.G - holdoverAmt
+  const calcTotalFund = calcTotalCash + s.H + s.I + coinTransitAmt
+  const calcExpectedCash = sub.expectedCash || location?.expectedCash || 0
+  const calcVariance = calcTotalFund - calcExpectedCash
+  const calcVariancePct = calcExpectedCash > 0 ? (calcVariance / calcExpectedCash) * 100 : 0
+  const tolerance = location?.tolerancePct ?? 5
+  const exceedsTolerance = Math.abs(calcVariancePct) > tolerance
+  const varColor = Math.abs(calcVariancePct) > 5 ? 'var(--red)' : Math.abs(calcVariancePct) > 2 ? 'var(--amb)' : 'var(--g7)'
 
   return (
     <div className="fade-up">
@@ -439,8 +450,8 @@ export default function OpReadonly({ ctx, onNavigate }: Props) {
       <div className="kpi-row" style={{ marginBottom: 20 }}>
         <KpiCard
           label="Total Fund"
-          value={formatCurrency(sub.totalCash)}
-          highlight={Math.abs(sub.variancePct) > 5 ? 'red' : false}
+          value={formatCurrency(calcTotalFund)}
+          highlight={Math.abs(calcVariancePct) > 5 ? 'red' : false}
           tooltip={{
             what: "The total cash counted across all sections (A–I) of this submission.",
             how: "Summed from all section totals entered during the cash count — bills, coins, rolled coin, changer funds, etc.",
@@ -450,7 +461,7 @@ export default function OpReadonly({ ctx, onNavigate }: Props) {
         />
         <KpiCard
           label="Imprest Balance"
-          value={formatCurrency(IMPREST)}
+          value={formatCurrency(calcExpectedCash)}
           accent="var(--ts)"
           tooltip={{
             what: "The fixed cash fund amount that this location is expected to hold at all times.",
@@ -460,10 +471,10 @@ export default function OpReadonly({ ctx, onNavigate }: Props) {
         />
         <KpiCard
           label="Variance"
-          value={`${sub.variance >= 0 ? '+' : ''}${formatCurrency(sub.variance)}`}
-          sub={`${sub.variancePct >= 0 ? '+' : ''}${sub.variancePct.toFixed(2)}%`}
+          value={`${calcVariance >= 0 ? '+' : ''}${formatCurrency(calcVariance)}`}
+          sub={`${calcVariancePct >= 0 ? '+' : ''}${calcVariancePct.toFixed(2)}%`}
           accent={varColor}
-          highlight={Math.abs(sub.variancePct) > 5 ? 'red' : Math.abs(sub.variancePct) > 2 ? 'amber' : false}
+          highlight={Math.abs(calcVariancePct) > 5 ? 'red' : Math.abs(calcVariancePct) > 2 ? 'amber' : false}
           tooltip={{
             what: "The difference between the actual cash counted and the expected imprest balance.",
             how: "Positive variance means more cash than expected (overage); negative means less (shortage). The percentage is used to determine if a written explanation is required.",
@@ -887,8 +898,8 @@ export default function OpReadonly({ ctx, onNavigate }: Props) {
       </div>
 
       {/* ══ Summary ══ */}
-      <div className="card" style={{ border: `2px solid ${Math.abs(sub.variancePct) > 5 ? 'var(--red)' : 'var(--g4)'}` }}>
-        <div className="card-header" style={{ background: Math.abs(sub.variancePct) > 5 ? 'var(--red-bg)' : 'var(--g0)' }}>
+      <div className="card" style={{ border: `2px solid ${Math.abs(calcVariancePct) > 5 ? 'var(--red)' : 'var(--g4)'}` }}>
+        <div className="card-header" style={{ background: Math.abs(calcVariancePct) > 5 ? 'var(--red-bg)' : 'var(--g0)' }}>
           <span className="card-title">Summary</span>
           <span className="card-sub">Cashroom Count Totals</span>
         </div>
@@ -925,7 +936,7 @@ export default function OpReadonly({ ctx, onNavigate }: Props) {
                 <td />
                 <td style={{ padding: '8px 8px', fontWeight: 700, fontSize: 13, color: '#78590a' }}>Total Cash</td>
                 <td style={{ ...YC, padding: '8px 0', fontSize: 15, fontFamily: 'DM Serif Display,serif' }}>
-                  {formatCurrency((s.A + s.B + s.C + s.D + s.E + s.F + s.G) - ((s as unknown as Record<string, number>).holdover || 0))}
+                  {formatCurrency(calcTotalCash)}
                 </td>
               </tr>
               {(['H', 'I'] as const).map(k => (
@@ -943,14 +954,14 @@ export default function OpReadonly({ ctx, onNavigate }: Props) {
                 <td style={{ padding: '7px 0', color: 'var(--g7)', fontWeight: 700, fontSize: 13 }}>J</td>
                 <td style={{ padding: '7px 8px', fontSize: 13, color: 'var(--td)' }}>Coin Purchase in Transit to / from Bank</td>
                 <td style={{ textAlign: 'right', fontFamily: 'DM Serif Display,serif', fontSize: 14, padding: '7px 0' }}>
-                  {formatCurrency((s as unknown as Record<string, number>).coinTransit || 0)}
+                  {formatCurrency(coinTransitAmt)}
                 </td>
               </tr>
               <tr style={{ background: '#fffde7', borderBottom: '2px solid var(--ow2)' }}>
                 <td />
                 <td style={{ padding: '8px 8px', fontWeight: 700, fontSize: 13, color: '#78590a' }}>Total Cashier's Fund – TODAY</td>
                 <td style={{ ...YC, padding: '8px 0', fontSize: 15, fontFamily: 'DM Serif Display,serif' }}>
-                  {formatCurrency(sub.totalCash)}
+                  {formatCurrency(calcTotalFund)}
                 </td>
               </tr>
             </tbody>
@@ -958,13 +969,20 @@ export default function OpReadonly({ ctx, onNavigate }: Props) {
 
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0' }}>
             <span style={{ color: 'var(--ts)' }}>Cashier's Fund Imprest Balance (this location)</span>
-            <span style={{ color: 'var(--ts)', fontFamily: 'DM Serif Display,serif' }}>{formatCurrency(IMPREST)}</span>
+            <span style={{ color: 'var(--ts)', fontFamily: 'DM Serif Display,serif' }}>{formatCurrency(calcExpectedCash)}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
+            <span style={{ color: 'var(--ts)', fontSize: 12 }}>Tolerance Threshold</span>
+            <span style={{ fontSize: 12, fontWeight: 700, color: exceedsTolerance ? 'var(--red)' : 'var(--g7)' }}>
+              ±{tolerance.toFixed(1)}%&nbsp;
+              <span style={{ fontWeight: 400, color: 'var(--ts)' }}>(±{formatCurrency(calcExpectedCash * tolerance / 100)})</span>
+            </span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderTop: '2px solid var(--ow2)', marginTop: 6 }}>
             <strong style={{ color: varColor }}>Variance – Short or (Over)</strong>
             <strong style={{ fontFamily: 'DM Serif Display,serif', fontSize: 18, color: varColor }}>
-              {sub.variance >= 0 ? '+' : ''}{formatCurrency(sub.variance)}&nbsp;
-              ({sub.variancePct >= 0 ? '+' : ''}{sub.variancePct.toFixed(2)}%)
+              {calcVariance >= 0 ? '+' : ''}{formatCurrency(calcVariance)}&nbsp;
+              ({calcVariancePct >= 0 ? '+' : ''}{calcVariancePct.toFixed(2)}%)
             </strong>
           </div>
 
