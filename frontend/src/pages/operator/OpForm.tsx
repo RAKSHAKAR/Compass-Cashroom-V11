@@ -536,6 +536,14 @@ export default function OpForm({ ctx, onNavigate }: Props) {
     }
   }
 
+  function handleDiscard() {
+    if (!window.confirm("Are you sure you want to discard this form? Any unsaved progress will be lost.")) return;
+    const targetId = draftId || ctx.submissionId;
+    if (targetId) sessionStorage.removeItem(`denom_${targetId}`);
+    sessionStorage.removeItem(`excel_prefill_${ctx.locationId}_${ctx.date}`);
+    onNavigate(ctx.from || 'op-start');
+  }
+
   async function handleSaveDraft() {
     const body = {
       location_id: ctx.locationId,
@@ -598,9 +606,12 @@ export default function OpForm({ ctx, onNavigate }: Props) {
           <h2>Cash Count Form</h2>
           <p><strong>{location?.name}</strong> · {dateLabel}</p>
         </div>
-        <div className="ph-right">
+        <div className="ph-right" style={{ display: 'flex', gap: 8 }}>
           <button className="btn btn-outline" onClick={() => onNavigate(ctx.from || 'op-start', ctx)}>
             ← Back
+          </button>
+          <button className="btn btn-outline" style={{ color: 'var(--red)', borderColor: '#fca5a5' }} onClick={handleDiscard}>
+            🗑 Discard
           </button>
           <button className="btn btn-outline" onClick={handleSaveDraft}>💾 Save Draft</button>
         </div>
@@ -1241,12 +1252,15 @@ export default function OpForm({ ctx, onNavigate }: Props) {
 
           {submitError && <div className="login-error" style={{ marginTop: 8 }}>{submitError}</div>}
 
-          <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
+          <div style={{ display: 'flex', gap: 10, marginTop: 18, flexWrap: 'wrap' }}>
             <button className="btn btn-primary" onClick={handleSubmit} disabled={totalFund === 0 || submitting}>
               ✓ Submit for Approval
             </button>
             <button className="btn btn-outline" onClick={handleSaveDraft}>
               💾 Save Draft
+            </button>
+            <button className="btn btn-outline" style={{ color: 'var(--red)', borderColor: '#fca5a5' }} onClick={handleDiscard}>
+              🗑 Discard
             </button>
             <button className="btn btn-outline" onClick={() => onNavigate(ctx.from || 'op-start', ctx)}>
               ← Back

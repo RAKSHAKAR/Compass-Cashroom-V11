@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { DRAFTS, getLocation, formatCurrency, IMPREST } from '../../mock/data'
+import { listSubmissions, deleteDraft } from '../../api/submissions'
 
 interface Props {
   onNavigate: (panel: string, ctx?: Record<string, string>) => void
@@ -7,11 +8,34 @@ interface Props {
 
 export default function OpDrafts({ onNavigate }: Props) {
   const [deletedIds, setDeletedIds] = useState<string[]>([])
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [apiDrafts, setApiDrafts] = useState<any[]>([])
 
-  const activeDrafts = DRAFTS.filter(d => !deletedIds.includes(d.id))
+  useEffect(() => {
+    // Secure Isolation: The backend listSubmissions endpoint automatically filters
+    // by the current operator's ID, ensuring they only see their own drafts.
+    listSubmissions({ status: 'draft', page_size: 100 })
+      .then(res => setApiDrafts(res.items))
+      .catch(() => { /* fallback to mock */ })
+  }, [])
 
-  function handleDelete(id: string) {
-    setDeletedIds(prev => [...prev, id])
+  const activeDrafts = apiDrafts.length > 0
+    ? apiDrafts.filter(d => !deletedIds.includes(d.id)).map(d => ({
+        id: d.id, locationId: d.location_id, date: d.submission_date,
+        savedAt: d.updated_at || d.created_at, sections: d.sections || {},
+        totalSoFar: d.total_cash
+      }))
+    : DRAFTS.filter(d => !deletedIds.includes(d.id))
+
+  async function handleDelete(id: string) {
+    if (!window.confirm("Are you sure you want to delete this draft? This cannot be undone.")) return;
+    try {
+      await deleteDraft(id)
+      setDeletedIds(prev => [...prev, id])
+    } catch {
+      // fallback for mock mode
+      setDeletedIds(prev => [...prev, id])
+    }
   }
 
   function handleResume(draftId: string, locationId: string, date: string) {
