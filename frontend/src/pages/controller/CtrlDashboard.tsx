@@ -619,11 +619,12 @@ export default function CtrlDashboard({ controllerName, locationIds, ctx, onNavi
               </thead>
               <tbody>
                 {pageRows.map(v => {
-                  const loc        = apiLocations.find(l => l.id === v.locationId) ?? getLocation(v.locationId)
+                  const loc        = getLocation(v.locationId)
                   const isFuture   = v.date > todayStr
                   const isExpanded = expandedId === v.id
-                  const variance   = v.observedTotal !== undefined ? v.observedTotal - IMPREST : null
-                  const pct        = variance !== null ? (variance / IMPREST) * 100 : null
+                  const expCash    = Number((loc as unknown as Record<string, number>)?.expected_cash ?? (loc as unknown as Record<string, number>)?.expectedCash ?? IMPREST)
+                  const variance   = v.observedTotal !== undefined ? v.observedTotal - expCash : null
+                  const pct        = variance !== null && expCash > 0 ? (variance / expCash) * 100 : null
                   const varCol     = pct !== null
                     ? (Math.abs(pct) > 5 ? 'var(--red)' : Math.abs(pct) > 2 ? 'var(--amb)' : 'var(--g7)')
                     : 'var(--wg)'

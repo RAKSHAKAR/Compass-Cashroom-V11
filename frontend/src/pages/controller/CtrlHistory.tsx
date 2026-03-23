@@ -229,8 +229,9 @@ export default function CtrlHistory({ controllerName, locationIds, onNavigate }:
               <tbody>
                 {pageRows.map(v => {
                   const loc      = getLocation(v.locationId)
-                  const variance = v.observedTotal !== undefined ? v.observedTotal - IMPREST : null
-                  const pct      = variance !== null ? (variance / IMPREST) * 100 : null
+                  const expCash  = Number((loc as unknown as Record<string, number>)?.expected_cash ?? (loc as unknown as Record<string, number>)?.expectedCash ?? IMPREST)
+                  const variance = v.observedTotal !== undefined ? v.observedTotal - expCash : null
+                  const pct      = variance !== null && expCash > 0 ? (variance / expCash) * 100 : null
                   const col      = pct !== null ? varColor(pct) : 'var(--wg)'
                   const dateLabel = new Date(v.date + 'T12:00:00').toLocaleDateString('en-GB', {
                     day: 'numeric', month: 'short', year: 'numeric',

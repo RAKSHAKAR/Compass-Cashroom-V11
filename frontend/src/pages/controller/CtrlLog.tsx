@@ -206,7 +206,14 @@ export default function CtrlLog({ controllerName, locationIds, ctx, onNavigate }
         })
         rec.id = res.id
         setFetchError('')
-      } catch {
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        const isNetworkError = error instanceof TypeError || error.message === 'Failed to fetch' || error.message === 'Network Error';
+        if (!isNetworkError) {
+          setFetchError(error.message || 'Failed to schedule visit due to a server or validation error.');
+          setSaving(false);
+          return;
+        }
         // Fallback: keep mock in sync
         setFetchError('Could not reach the server. Make sure the backend is running on port 8000.')
         VERIFICATIONS.push(rec)

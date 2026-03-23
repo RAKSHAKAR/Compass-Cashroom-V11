@@ -494,7 +494,15 @@ export default function OpForm({ ctx, onNavigate }: Props) {
       sessionStorage.setItem(`denom_${submissionId}`, JSON.stringify(denomDetail))
       onNavigate(ctx.from || 'op-start') // Route to previous context or Dashboard
     } catch (err) {
-      console.error('[OpForm] submit failed:', err)
+      // Strict Fallback Rule: Only fallback to session storage if backend is unreachable (Network Error)
+      const error = err instanceof Error ? err : new Error(String(err));
+      const isNetworkError = error instanceof TypeError || error.message === 'Failed to fetch' || error.message === 'Network Error';
+      if (!isNetworkError) {
+        setSubmitError(error.message || 'Submission failed due to a server or validation error.');
+        setSubmitting(false);
+        return;
+      }
+      
       // Fallback: upsert into mock so the demo still works without a backend
       const existingIdx = SUBMISSIONS.findIndex(s => s.locationId === ctx.locationId && s.date === ctx.date)
       const newId = existingIdx >= 0 ? SUBMISSIONS[existingIdx].id : `SUB-${Date.now()}`
@@ -586,7 +594,13 @@ export default function OpForm({ ctx, onNavigate }: Props) {
         DRAFTS.push({ id: res.id, locationId: ctx.locationId, date: ctx.date, savedAt: new Date().toISOString(), sections: { A: totA, B: totB }, totalSoFar: totalFund })
         sessionStorage.setItem(`denom_${res.id}`, JSON.stringify(denomDetail))
       }
-    } catch {
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      const isNetworkError = error instanceof TypeError || error.message === 'Failed to fetch' || error.message === 'Network Error';
+      if (!isNetworkError) {
+        window.alert(error.message || 'Failed to save draft due to a server error.');
+        return;
+      }
       // Fallback to mock
       const idx = DRAFTS.findIndex(d => d.locationId === ctx.locationId && d.date === ctx.date)
       const newId = idx >= 0 ? DRAFTS[idx].id : `DFT-${Date.now()}`

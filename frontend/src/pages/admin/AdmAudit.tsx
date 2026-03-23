@@ -169,20 +169,19 @@ export default function AdmAudit({ adminName }: Props) {
         .map(e => e.locationId!)
     )
     return LOCATIONS.filter(l => locIds.has(l.id))
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterType, filterActor, sourceEvents])
 
   // Auto-reset actor if it no longer appears in the narrowed actor list
   useEffect(() => {
     if (filterActor !== 'all' && !availableActors.some(a => a.name === filterActor))
       setFilterActor('all')
-  }, [availableActors])
+  }, [availableActors, filterActor])
 
   // Auto-reset location if it no longer appears in the narrowed location list
   useEffect(() => {
     if (filterLoc !== 'all' && !availableLocations.some(l => l.id === filterLoc))
       setFilterLoc('all')
-  }, [availableLocations])
+  }, [availableLocations, filterLoc])
 
   const dateStart = filterRange === 'custom' ? customFrom : rangeStart(filterRange)
   const dateEnd   = filterRange === 'custom' ? customTo  : (filterRange !== 'all' ? todayStr() : '')
@@ -199,7 +198,6 @@ export default function AdmAudit({ adminName }: Props) {
         return true
       })
       .sort((a,b) => b.timestamp.localeCompare(a.timestamp)),
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   [filterType, filterActor, filterLoc, dateStart, dateEnd, sourceEvents])
 
   // ── Export Logic ────────────────────────────────────────────────────────
