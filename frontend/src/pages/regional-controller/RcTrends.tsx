@@ -9,6 +9,11 @@ import {
 
 interface Props { adminName: string }
 
+function formatCC(cc: string | undefined | null): string {
+  if (!cc || cc === 'null' || cc === 'undefined') return 'N/A';
+  return cc.toString().replace(/^loc-/i, '').toUpperCase();
+}
+
 type Granularity = 'daily' | 'weekly' | 'monthly' | 'quarterly'
 
 // Section labels matching the operator cash form (Sections A–I)
@@ -194,6 +199,7 @@ export default function RcTrends({ adminName }: Props) {
   const [sectionKey,     setSectionKey]     = useState('secA')
   const [apiTrends,      setApiTrends]      = useState<SectionTrends | null>(null)
   const [fetchError,     setFetchError]     = useState('')
+  const [isLoading,      setIsLoading]      = useState(false)
 
   const activeSec = SECTIONS.find(s => s.key === sectionKey)!
 
@@ -208,13 +214,18 @@ export default function RcTrends({ adminName }: Props) {
   }
 
   useEffect(() => {
-    Promise.resolve().then(() => { setApiTrends(null); setFetchError(''); })
+    Promise.resolve().then(() => { setIsLoading(true); setFetchError(''); });
     getSectionTrends({
       section:     activeSec.short,
-      granularity: granularity === 'daily' ? 'weekly' : granularity, // API doesn't support daily yet
+      granularity: granularity === 'daily' ? 'weekly' : granularity, 
       periods:     effectivePeriodN,
       location_id: locationId === 'all' ? undefined : locationId,
-    }).then(setApiTrends).catch((err) => {
+    }).then(data => {
+      setApiTrends(data);
+      setIsLoading(false);
+    }).catch((err) => {
+      setApiTrends(null);
+      setIsLoading(false);
       const error = err instanceof Error ? err : new Error(String(err));
       const isNetworkError = error instanceof TypeError || error.message === 'Failed to fetch' || error.message === 'Network Error';
       if (isNetworkError) {
@@ -228,20 +239,29 @@ export default function RcTrends({ adminName }: Props) {
   const mockData = useMemo((): DataPoint[] => genPts(locationId, granularity, effectivePeriodN),
     [granularity, effectivePeriodN, locationId])
 
+  // Single source of truth for Chart and Cards:
   const chartData = useMemo((): DataPoint[] => {
-    if (granularity !== 'daily' && apiTrends && apiTrends.data.length > 0) {
+    if (fetchError) return mockData; // Fallback to mock ONLY on API failure
+    
+    if (apiTrends && apiTrends.data) {
+      if (apiTrends.data.length === 0) {
+        // If API returns empty dataset, map empty 0s dynamically to prevent crashing the UI
+        return genPts(locationId, granularity, effectivePeriodN).map(p => ({ period: p.period, [sectionKey]: 0 }));
+      }
       return apiTrends.data.map(p => ({ period: p.period, [sectionKey]: p.avg_total }))
     }
-    return mockData
-  }, [apiTrends, mockData, sectionKey, granularity])
+    
+    return mockData; // Render mock during initial load
+  }, [apiTrends, mockData, sectionKey, fetchError, locationId, granularity, effectivePeriodN])
 
+  // STRICTLY derive KPIs dynamically from the chart dataset (Ignore backend summaries)
   const values    = chartData.map(r => (r[sectionKey] as number | string | undefined) ?? 0).map(Number)
-  const latest    = apiTrends && granularity !== 'daily' ? apiTrends.summary.latest_value   : (values.at(-1) ?? 0)
-  const prev      = apiTrends && granularity !== 'daily' ? apiTrends.summary.previous_value : (values.at(-2) ?? latest)
-  const avg       = apiTrends && granularity !== 'daily' ? Math.round(apiTrends.summary.period_avg) : (values.length ? Math.round(values.reduce((a, b) => a + b, 0) / values.length) : 0)
-  const peak      = apiTrends && granularity !== 'daily' ? apiTrends.summary.peak           : (values.length ? Math.max(...values) : 0)
+  const latest    = values.length > 0 ? values[values.length - 1] : 0
+  const prev      = values.length > 1 ? values[values.length - 2] : latest
+  const avg       = values.length > 0 ? Math.round(values.reduce((a, b) => a + b, 0) / values.length) : 0
+  const peak      = values.length > 0 ? Math.max(...values) : 0
   const total     = values.reduce((a, b) => a + b, 0)
-  const pctChange = apiTrends && granularity !== 'daily' ? apiTrends.summary.change_pct     : (prev ? ((latest - prev) / prev) * 100 : 0)
+  const pctChange = prev > 0 ? ((latest - prev) / prev) * 100 : 0
   const changeUp  = pctChange >= 0
 
   const periodUnit = granularity === 'daily' ? 'days' : granularity === 'weekly' ? 'wks' : granularity === 'monthly' ? 'mo' : 'qtrs'
@@ -361,23 +381,28 @@ export default function RcTrends({ adminName }: Props) {
               >
                 All
               </button>
-              {LOCATIONS.filter(l => l.active).map(l => (
-                <button
-                  key={l.id}
-                  onClick={() => setLocationId(l.id)}
-                  title={`${l.name} (CC: ${(l as unknown as { costCenter?: string; cost_center?: string }).costCenter || (l as unknown as { costCenter?: string; cost_center?: string }).cost_center || 'N/A'})`}
-                  style={{
-                    padding: '5px 14px', borderRadius: 20, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit',
-                    border:     `1.5px solid ${locationId === l.id ? 'var(--g4)' : 'var(--ow2)'}`,
-                    background: locationId === l.id ? 'var(--g7)' : '#fff',
-                    color:      locationId === l.id ? '#fff'      : 'var(--td)',
-                    fontWeight: locationId === l.id ? 700 : 400,
-                    maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                  }}
-                >
-                  {l.name} (CC: {(l as unknown as { costCenter?: string; cost_center?: string }).costCenter || (l as unknown as { costCenter?: string; cost_center?: string }).cost_center || 'N/A'})
-                </button>
-              ))}
+              {LOCATIONS.filter(l => l.active).map(l => {
+                const locData = l as unknown as { costCenter?: string; cost_center?: string; id: string };
+                const rawCC = locData.costCenter || locData.cost_center || locData.id;
+                const cc = formatCC(rawCC);
+                return (
+                  <button
+                    key={l.id}
+                    onClick={() => setLocationId(l.id)}
+                    title={`${l.name} (CC: ${cc})`}
+                    style={{
+                      padding: '5px 14px', borderRadius: 20, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit',
+                      border:     `1.5px solid ${locationId === l.id ? 'var(--g4)' : 'var(--ow2)'}`,
+                      background: locationId === l.id ? 'var(--g7)' : '#fff',
+                      color:      locationId === l.id ? '#fff'      : 'var(--td)',
+                      fontWeight: locationId === l.id ? 700 : 400,
+                      maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {l.name} (CC: {cc})
+                  </button>
+                )
+              })}
             </div>
           </div>
         </div>
@@ -489,7 +514,8 @@ export default function RcTrends({ adminName }: Props) {
             Section {activeSec.short}
           </div>
         </div>
-        <div className="card-body" style={{ padding: '20px 12px 12px' }}>
+        <div className="card-body" style={{ padding: '20px 12px 12px', position: 'relative', opacity: isLoading ? 0.5 : 1, transition: 'opacity 0.2s' }}>
+          {isLoading && <div style={{position:'absolute', top:'50%', left:'50%', transform:'translate(-50%, -50%)', fontWeight:600, color:'var(--ts)', zIndex:10}}>Loading data...</div>}
           <ResponsiveContainer width="100%" height={380}>
             <AreaChart data={chartData} margin={{ top: 8, right: 24, left: 8, bottom: 4 }}>
               <defs>

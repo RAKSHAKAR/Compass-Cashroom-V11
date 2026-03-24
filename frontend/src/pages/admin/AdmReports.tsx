@@ -1,10 +1,16 @@
 import { useState, useMemo, useEffect } from 'react'
 import { SUBMISSIONS, VERIFICATIONS, LOCATIONS, USERS, AUDIT_EVENTS, formatCurrency, todayStr, getLocation, IMPREST } from '../../mock/data'
-import { getReportSummary } from '../../api/reports'
-import type { ReportSummary } from '../../api/types'
+import { listSubmissions } from '../../api/submissions'
+import { listControllerVerifications, listDgmVerifications } from '../../api/verifications'
+import type { ApiSubmission, ApiVerification } from '../../api/types'
 import KpiCard from '../../components/KpiCard'
 
 interface Props { adminName: string }
+
+function formatCC(cc: string | undefined | null): string {
+  if (!cc || cc === 'null' || cc === 'undefined') return 'N/A';
+  return cc.toString().replace(/^loc-/i, '').toUpperCase();
+}
 
 const ACT_PAGE_SIZE = 10
 const EXC_PAGE_SIZE = 10
@@ -43,7 +49,9 @@ export default function AdmReports({ adminName }: Props) {
   const [excPage,    setExcPage]    = useState(0)
   const [dtlPage,    setDtlPage]    = useState(0)
   const [dtlLocFilter, setDtlLocFilter] = useState('all')
-  const [apiSummary, setApiSummary] = useState<ReportSummary | null>(null)
+  // apiSummary removed as KPIs are strictly calculated from the filtered table
+  const [apiSubs, setApiSubs] = useState<ApiSubmission[] | null>(null)
+  const [apiVerifs, setApiVerifs] = useState<ApiVerification[] | null>(null)
   const [fetchError, setFetchError] = useState('')
 
 
@@ -52,57 +60,98 @@ export default function AdmReports({ adminName }: Props) {
     return rangeLabel(range) ?? { start:'', end:'' }
   }, [range, customFrom, customTo])
 
-  // Fetch real summary KPIs when date range is available
+  // Fetch detail rows when date range is available
   useEffect(() => {
     if (!start || !end) {
-      Promise.resolve().then(() => { setApiSummary(null); setFetchError(''); })
+      Promise.resolve().then(() => { setApiSubs(null); setApiVerifs(null); setFetchError(''); })
       return
     }
-    getReportSummary({ date_from: start, date_to: end })
-      .then((data) => {
-        setApiSummary(data)
+    Promise.all([
+      listSubmissions({ date_from: start, date_to: end, page_size: 5000 }).then(res => res.items).catch(() => null),
+      listControllerVerifications({ date_from: start, date_to: end, page_size: 5000 }).then(res => res.items).catch(() => null),
+      listDgmVerifications({ page_size: 5000 }).then(res => res.items).catch(() => null)
+    ])
+      .then(([subs, ctrl, dgm]) => {
+        if (subs) setApiSubs(subs)
+        if (ctrl && dgm) setApiVerifs([...ctrl, ...dgm])
         setFetchError('')
       })
       .catch((err) => {
-        setApiSummary(null)
+        setApiSubs(null)
+        setApiVerifs(null)
         const error = err instanceof Error ? err : new Error(String(err));
         const isNetworkError = error instanceof TypeError || error.message === 'Failed to fetch' || error.message === 'Network Error';
         if (isNetworkError) {
           setFetchError('Could not reach the server. Make sure the backend is running on port 8000.')
         } else {
-          setFetchError(error.message || 'Failed to load report summary.')
+          setFetchError(error.message || 'Failed to load report data.')
         }
       })
   }, [start, end])
 
-  const filteredSubs = useMemo(() =>
-    SUBMISSIONS.filter(s => (!start||s.date>=start) && (!end||s.date<=end)).map(s => {
+  const filteredSubs = useMemo(() => {
+    if (apiSubs) {
+      return apiSubs.map(s => {
+        const loc = LOCATIONS.find(l => l.id === s.location_id);
+        const expCash = Number(s.expected_cash || (loc as unknown as Record<string, number>)?.expectedCash || (loc as unknown as Record<string, number>)?.expected_cash || IMPREST);
+        const variance = s.total_cash - expCash;
+        const variancePct = expCash > 0 ? (variance / expCash) * 100 : 0;
+        return {
+          id: s.id,
+          locationId: s.location_id,
+          operatorName: s.operator_name,
+          date: s.submission_date,
+          status: s.status,
+          totalCash: s.total_cash,
+          expectedCash: expCash,
+          variance: s.variance ?? variance,
+          variancePct: s.variance_pct ?? variancePct,
+          approvedBy: s.approved_by || undefined,
+          approvedByName: s.approved_by_name || undefined,
+          rejectionReason: s.rejection_reason || undefined
+        }
+      });
+    }
+    return SUBMISSIONS.filter(s => (!start||s.date>=start) && (!end||s.date<=end)).map(s => {
       const loc = getLocation(s.locationId)
       const expCash = Number(s.expectedCash || (loc as unknown as Record<string, number>)?.expected_cash || (loc as unknown as Record<string, number>)?.expectedCash || IMPREST)
       const variance = s.totalCash - expCash
       const variancePct = expCash > 0 ? (variance / expCash) * 100 : 0
       return { ...s, expectedCash: expCash, variance, variancePct }
-    }),
-  [start, end])
-
-  const approvedCount  = apiSummary ? apiSummary.approved           : filteredSubs.filter(s=>s.status==='approved').length
-  const rejectedCount  = apiSummary ? apiSummary.rejected           : filteredSubs.filter(s=>s.status==='rejected').length
-  const totalSubCount  = apiSummary ? apiSummary.total_submissions  : filteredSubs.length
-  const approvalRate   = apiSummary ? Math.round(apiSummary.approval_rate_pct) : (totalSubCount ? Math.round((approvedCount/totalSubCount)*100) : 0)
-  const exceptions     = filteredSubs.filter(s=>Math.abs(s.variancePct)>5) // still from mock for detail table
-  const exceptionCount = apiSummary ? apiSummary.variance_exceptions : exceptions.length
-  const avgVariance    = apiSummary ? apiSummary.avg_variance_pct
-    : (filteredSubs.length ? filteredSubs.reduce((n,s)=>n+Math.abs(s.variancePct),0)/filteredSubs.length : 0)
-
-  const ctrlInRange  = VERIFICATIONS.filter(v=>v.type==='controller'&&v.status==='completed'&&(!start||v.date>=start)&&(!end||v.date<=end))
-  const dgmInRange   = VERIFICATIONS.filter(v=>v.type==='dgm'&&v.status==='completed'&&(!start||v.date>=start)&&(!end||v.date<=end))
-  const ctrlCount    = apiSummary ? apiSummary.controller_verifications : ctrlInRange.length
-  const dgmCount     = apiSummary ? apiSummary.dgm_visits              : dgmInRange.length
+    });
+  }, [apiSubs, start, end])
 
   // All verifications in the date range (used for actor summary)
-  const filteredVerifs = useMemo(() =>
-    VERIFICATIONS.filter(v => (!start||v.date>=start) && (!end||v.date<=end)),
-  [start, end])
+  const filteredVerifs = useMemo(() => {
+    if (apiVerifs) {
+      return apiVerifs.map(v => ({
+        id: v.id,
+        locationId: v.location_id,
+        verifierName: v.verifier_name,
+        type: v.verification_type.toLowerCase() as 'controller'|'dgm',
+        status: v.status.toLowerCase() as 'scheduled'|'completed'|'missed'|'cancelled',
+        date: v.verification_date
+      }));
+    }
+    return VERIFICATIONS.filter(v => (!start||v.date>=start) && (!end||v.date<=end));
+  }, [apiVerifs, start, end])
+
+  // Single Source of Truth: Filter the raw submission/verification data by location
+  const locFilteredSubs = dtlLocFilter === 'all' ? filteredSubs : filteredSubs.filter(s => s.locationId === dtlLocFilter)
+  const locFilteredVerifs = dtlLocFilter === 'all' ? filteredVerifs : filteredVerifs.filter(v => v.locationId === dtlLocFilter)
+
+  // STRICTLY derive KPI Cards dynamically from the filtered table dataset
+  const approvedCount  = locFilteredSubs.filter(s=>s.status==='approved').length
+  const rejectedCount  = locFilteredSubs.filter(s=>s.status==='rejected').length
+  const totalSubCount  = locFilteredSubs.length
+  const approvalRate   = totalSubCount ? Math.round((approvedCount/totalSubCount)*100) : 0
+  
+  const exceptions     = locFilteredSubs.filter(s=>Math.abs(s.variancePct)>5) 
+  const exceptionCount = exceptions.length
+  const avgVariance    = locFilteredSubs.length ? locFilteredSubs.reduce((n,s)=>n+Math.abs(s.variancePct),0)/locFilteredSubs.length : 0
+
+  const ctrlCount      = locFilteredVerifs.filter(v=>v.type==='controller' && v.status==='completed').length
+  const dgmCount       = locFilteredVerifs.filter(v=>v.type==='dgm' && v.status==='completed').length
 
   // Unified per-actor summary — covers operators, managers, controllers, DGMs
   type ActorRow = {
@@ -220,9 +269,9 @@ export default function AdmReports({ adminName }: Props) {
       .map(key => {
         const [date, locId] = key.split('|')
         const loc  = LOCATIONS.find(l => l.id === locId)
-        const sub  = SUBMISSIONS.find(s => s.locationId === locId && s.date === date)
-        const ctrl = VERIFICATIONS.find(v => v.locationId === locId && v.date === date && v.type === 'controller' && v.status === 'completed')
-        const dgm  = VERIFICATIONS.find(v => v.locationId === locId && v.date === date && v.type === 'dgm'        && v.status === 'completed')
+        const sub  = filteredSubs.find(s => s.locationId === locId && s.date === date)
+        const ctrl = filteredVerifs.find(v => v.locationId === locId && v.date === date && v.type === 'controller' && v.status === 'completed')
+        const dgm  = filteredVerifs.find(v => v.locationId === locId && v.date === date && v.type === 'dgm'        && v.status === 'completed')
         // RC: first check audit events for an RC actor on this location+date, then fall back to assigned RC
         const rcEvent = AUDIT_EVENTS.find(e =>
           e.locationId === locId &&
@@ -388,9 +437,13 @@ export default function AdmReports({ adminName }: Props) {
             }}
           >
             <option value="all">All Locations</option>
-            {LOCATIONS.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(l => (
-              <option key={l.id} value={l.id}>{l.name} (CC: {(l as unknown as { costCenter?: string; cost_center?: string }).costCenter || (l as unknown as { costCenter?: string; cost_center?: string }).cost_center || 'N/A'})</option>
-            ))}
+            {LOCATIONS.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(l => {
+              const locData = l as unknown as { costCenter?: string; cost_center?: string; id: string };
+              const rawCC = locData.costCenter || locData.cost_center || locData.id;
+              return (
+                <option key={l.id} value={l.id}>{l.name} (CC: {formatCC(rawCC)})</option>
+              );
+            })}
           </select>
           {dtlLocFilter !== 'all' && (
             <button

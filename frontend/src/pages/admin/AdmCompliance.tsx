@@ -8,6 +8,12 @@ interface Props { adminName: string }
 
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December']
 
+// Extracted outside the component to satisfy react-hooks/purity ESLint rules
+function checkOverdueSla(status?: string, submittedAt?: string | null): boolean {
+  if (status !== 'pending_approval' || !submittedAt) return false;
+  return (Date.now() - new Date(submittedAt).getTime()) / 3600000 > 48;
+}
+
 function curMonthYear() {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
@@ -19,7 +25,10 @@ function Dot({ c }: { c: 'green'|'amber'|'red'|'gray' }) {
   const bg = c==='green'?'var(--g7)':c==='amber'?'var(--amb)':c==='red'?'var(--red)':'#bbb'
   return <span style={{display:'inline-block',width:8,height:8,borderRadius:'50%',background:bg,flexShrink:0,marginTop:2}}/>
 }
-
+function formatCC(cc: string | undefined | null): string {
+  if (!cc || cc === 'null' || cc === 'undefined') return 'N/A';
+  return cc.toString().replace(/^loc-/i, '').toUpperCase();
+}
 type CompStatus = 'green'|'amber'|'red'
 type SortKey   = 'status'|'name'
 type RangeKey  = 'today'|'week'|'month'|'custom'
@@ -140,9 +149,29 @@ export default function AdmCompliance({ adminName }: Props) {
       const dgmC:  'green'|'amber'|'red'|'gray' = lc.dgm_visit.visit_date ? 'green' : 'amber'
       return {
         loc:        { id: lc.id, name: lc.name, city: '', expectedCash: 0, tolerancePct: 0, active: true },
-        todaySub:   lc.submission ? { totalCash: lc.submission.total_cash, variance: lc.submission.variance, variancePct: lc.submission.variance_pct, status: lc.submission.status } : null,
-        overdue:    [] as unknown[],
-        rate30:     Math.round(lc.submission_rate_30d * 100),
+        todaySub: lc.submission ? (() => {
+          const totalCash = lc.submission.total_cash;
+          const gLoc = LOCATIONS.find(l => l.id === lc.id);
+          const expectedCash = gLoc?.expectedCash || IMPREST;
+          
+          // Fix: If backend duplicated total into variance (common bug when backend expected = 0), recalculate.
+          const actualVariance = (lc.submission.variance === totalCash && totalCash !== 0) 
+            ? (totalCash - expectedCash) 
+            : lc.submission.variance;
+            
+          const actualVariancePct = (lc.submission.variance_pct === 0 && actualVariance !== 0 && expectedCash > 0) 
+            ? ((actualVariance / expectedCash) * 100) 
+            : lc.submission.variance_pct;
+
+          return { 
+            totalCash, 
+            variance: actualVariance, 
+            variancePct: actualVariancePct, 
+            status: lc.submission.status 
+          };
+        })() : null,
+            overdue: checkOverdueSla(lc.submission?.status, lc.submission?.submitted_at) ? [lc.submission] : [],
+            rate30:     Math.round(lc.submission_rate_30d * 100),
         lastCtrl:   lc.controller_visit.last_date ? { date: lc.controller_visit.last_date, observedTotal: undefined as number | undefined, warningFlag: lc.controller_visit.warning_flag } : null,
         nextCtrl:   lc.controller_visit.next_scheduled_date ? { date: lc.controller_visit.next_scheduled_date, scheduledTime: undefined as string | undefined } : null,
         missedCtrl: 0,
@@ -188,15 +217,18 @@ export default function AdmCompliance({ adminName }: Props) {
     }
   }, [activeKpi])
 
-  // ── KPIs computed from filtered rows (API dashboard is today-only, so always use mock for range) ──
-  const fullyCompliant     = rows.filter(r=>r.compStatus==='green').length
-  const submittedInRange   = rows.filter(r=>r.todaySub).length
-  const overdueTotal       = rows.reduce((n,r)=>n+r.overdue.length,0)
-  const varianceExceptions = rows.filter(r=>r.todaySub&&Math.abs(r.todaySub.variancePct)>5).length
-  const ctrlIssues         = rows.filter(r=>r.missedCtrl>0||(r.dSinceCtrl!==null&&r.dSinceCtrl>14)).length
-  const dgmCovered         = rows.filter(r=>r.dgmVisit).length
-  const totalLocations     = apiRows ? apiRows.length : LOCATIONS.length
-  const compPct            = Math.round(fullyCompliant/totalLocations*100)
+  // ── KPIs computed dynamically from backend data (apiRows) or fallback to mock (rows) ──
+  // We use sortedRows as the base to guarantee the cards perfectly match the table's data source.
+  const kpiSource          = locFilter === 'all' ? sortedRows : sortedRows.filter(r => r.loc.id === locFilter);
+  
+  const fullyCompliant     = kpiSource.filter(r=>r.compStatus==='green').length;
+  const submittedInRange   = kpiSource.filter(r=>r.todaySub).length;
+  const overdueTotal       = kpiSource.reduce((n,r)=>n+(Array.isArray(r.overdue) ? r.overdue.length : 0), 0);
+  const varianceExceptions = kpiSource.filter(r=>r.todaySub && r.todaySub.variancePct !== undefined && Math.abs(r.todaySub.variancePct) > 5).length;
+  const ctrlIssues         = kpiSource.filter(r=>r.missedCtrl > 0 || (r.dSinceCtrl !== null && r.dSinceCtrl > 14)).length;
+  const dgmCovered         = kpiSource.filter(r=>r.dgmVisit).length;
+  const totalLocations     = kpiSource.length;
+  const compPct            = totalLocations > 0 ? Math.round((fullyCompliant / totalLocations) * 100) : 0;
 
   return (
     <div className="fade-up">
@@ -260,12 +292,15 @@ export default function AdmCompliance({ adminName }: Props) {
               background:'transparent', border:'none', outline:'none', cursor:'pointer', minWidth:160, maxWidth:260 }}>
             <option value="all">All Locations</option>
             {sortedRows.slice().sort((a,b)=>a.loc.name.localeCompare(b.loc.name)).map(r => {
-              const gLoc = LOCATIONS.find(l => l.id === r.loc.id);
-              const cc = (r.loc as unknown as { costCenter?: string; cost_center?: string }).costCenter || 
-                         (r.loc as unknown as { costCenter?: string; cost_center?: string }).cost_center || 
-                         (gLoc as unknown as { costCenter?: string; cost_center?: string })?.costCenter || 
-                         (gLoc as unknown as { costCenter?: string; cost_center?: string })?.cost_center || 
-                         'N/A';
+              const gLoc = LOCATIONS.find(l => l.id === r.loc.id) || LOCATIONS.find(l => l.name === r.loc.name);
+              const locData = r.loc as unknown as { costCenter?: string; cost_center?: string; id: string };
+              const gLocData = gLoc as unknown as { costCenter?: string; cost_center?: string } | undefined;
+              const rawCC = locData.costCenter || 
+                            locData.cost_center || 
+                            gLocData?.costCenter || 
+                            gLocData?.cost_center ||
+                            locData.id; // Fallback to ID if cost_center is omitted from API
+              const cc = formatCC(rawCC);
               return (
                 <option key={r.loc.id} value={r.loc.id}>{r.loc.name} (CC: {cc})</option>
               );
@@ -431,7 +466,15 @@ export default function AdmCompliance({ adminName }: Props) {
                     {/* Location */}
                     <td>
                       <div style={{fontWeight:600,fontSize:13}}>{loc.name}</div>
-                      <div style={{fontSize:11,fontFamily:'monospace',color:'var(--ts)'}}>{loc.id}</div>
+                      <div style={{fontSize:11,fontFamily:'monospace',color:'var(--ts)'}}>
+                        CC: {(()=>{
+                          const gLoc = LOCATIONS.find(l => l.id === loc.id) || LOCATIONS.find(l => l.name === loc.name);
+                          const locData = loc as unknown as { costCenter?: string; cost_center?: string; id: string };
+                          const gLocData = gLoc as unknown as { costCenter?: string; cost_center?: string } | undefined;
+                          const raw = locData.costCenter || locData.cost_center || gLocData?.costCenter || gLocData?.cost_center || locData.id;
+                          return formatCC(raw);
+                        })()}
+                      </div>
                     </td>
 
                     {/* Today's submission */}
@@ -461,7 +504,6 @@ export default function AdmCompliance({ adminName }: Props) {
                         color:rate30>=90?'var(--g7)':rate30>=70?'var(--amb)':'var(--red)'}}>
                         {rate30}%
                       </div>
-                      <div style={{fontSize:10,color:'var(--ts)'}}>30-day</div>
                     </td>
 
                     {/* Controller visit */}
@@ -475,7 +517,7 @@ export default function AdmCompliance({ adminName }: Props) {
                         </span>
                       </div>
                       {lastCtrl&&<div style={{fontSize:11,color:'var(--ts)',paddingLeft:14}}>
-                        {formatCurrency(lastCtrl.observedTotal??0)} · <span style={{
+                        {lastCtrl.observedTotal !== undefined && lastCtrl.observedTotal !== null ? formatCurrency(lastCtrl.observedTotal) : 'No amount recorded'} · <span style={{
                           color:lastCtrl.warningFlag?'var(--amb)':'var(--g7)',fontWeight:500}}>
                           {lastCtrl.warningFlag?'⚠ DOW flag':'No flags'}
                         </span>
