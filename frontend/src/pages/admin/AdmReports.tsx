@@ -43,9 +43,8 @@ export default function AdmReports({ adminName }: Props) {
   const [excPage,    setExcPage]    = useState(0)
   const [dtlPage,    setDtlPage]    = useState(0)
   const [dtlLocFilter, setDtlLocFilter] = useState('all')
-  const [fetchError, setFetchError] = useState('')
-
   const [apiSummary, setApiSummary] = useState<ReportSummary | null>(null)
+  const [fetchError, setFetchError] = useState('')
 
 
   const { start, end } = useMemo(() => {
@@ -59,9 +58,11 @@ export default function AdmReports({ adminName }: Props) {
       Promise.resolve().then(() => { setApiSummary(null); setFetchError(''); })
       return
     }
-    setFetchError('')
     getReportSummary({ date_from: start, date_to: end })
-      .then(setApiSummary)
+      .then((data) => {
+        setApiSummary(data)
+        setFetchError('')
+      })
       .catch((err) => {
         setApiSummary(null)
         const error = err instanceof Error ? err : new Error(String(err));
@@ -388,7 +389,7 @@ export default function AdmReports({ adminName }: Props) {
           >
             <option value="all">All Locations</option>
             {LOCATIONS.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(l => (
-              <option key={l.id} value={l.id}>{l.name}</option>
+              <option key={l.id} value={l.id}>{l.name} (CC: {(l as unknown as { costCenter?: string; cost_center?: string }).costCenter || (l as unknown as { costCenter?: string; cost_center?: string }).cost_center || 'N/A'})</option>
             ))}
           </select>
           {dtlLocFilter !== 'all' && (

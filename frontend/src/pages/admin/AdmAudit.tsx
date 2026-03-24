@@ -347,7 +347,7 @@ export default function AdmAudit({ adminName }: Props) {
           <div style={{display:'flex',flexDirection:'column',gap:2}}>
             <select value={filterLoc} onChange={e=>setFilterLoc(e.target.value)} style={{...SEL, opacity: availableLocations.length===0 ? 0.5 : 1}} disabled={availableLocations.length===0}>
               <option value="all">{availableLocations.length===0 ? 'No locations (event has none)' : 'All Locations'}</option>
-              {availableLocations.map(l=><option key={l.id} value={l.id}>{l.name}</option>)}
+              {availableLocations.map(l=><option key={l.id} value={l.id}>{l.name} (CC: {(l as unknown as { costCenter?: string; cost_center?: string }).costCenter || (l as unknown as { costCenter?: string; cost_center?: string }).cost_center || 'N/A'})</option>)}
             </select>
             {(filterType !== 'all' || filterActor !== 'all') && availableLocations.length > 0 && (
               <span style={{fontSize:10,color:'var(--ts)',paddingLeft:2}}>

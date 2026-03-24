@@ -192,8 +192,8 @@ export default function RcTrends({ adminName }: Props) {
   const [customTo,       setCustomTo]       = useState(TODAY_ISO)
   const [locationId,     setLocationId]     = useState('all')
   const [sectionKey,     setSectionKey]     = useState('secA')
-  const [fetchError,     setFetchError]     = useState('')
   const [apiTrends,      setApiTrends]      = useState<SectionTrends | null>(null)
+  const [fetchError,     setFetchError]     = useState('')
 
   const activeSec = SECTIONS.find(s => s.key === sectionKey)!
 
@@ -365,17 +365,17 @@ export default function RcTrends({ adminName }: Props) {
                 <button
                   key={l.id}
                   onClick={() => setLocationId(l.id)}
-                  title={`${l.name} · ${l.city}`}
+                  title={`${l.name} (CC: ${(l as unknown as { costCenter?: string; cost_center?: string }).costCenter || (l as unknown as { costCenter?: string; cost_center?: string }).cost_center || 'N/A'})`}
                   style={{
                     padding: '5px 14px', borderRadius: 20, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit',
                     border:     `1.5px solid ${locationId === l.id ? 'var(--g4)' : 'var(--ow2)'}`,
                     background: locationId === l.id ? 'var(--g7)' : '#fff',
                     color:      locationId === l.id ? '#fff'      : 'var(--td)',
                     fontWeight: locationId === l.id ? 700 : 400,
-                    maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                   }}
                 >
-                  {l.name}
+                  {l.name} (CC: {(l as unknown as { costCenter?: string; cost_center?: string }).costCenter || (l as unknown as { costCenter?: string; cost_center?: string }).cost_center || 'N/A'})
                 </button>
               ))}
             </div>

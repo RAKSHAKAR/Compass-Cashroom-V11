@@ -72,9 +72,11 @@ export default function AdmCompliance({ adminName }: Props) {
   }, [range, start, end, cm, cy])
 
   useEffect(() => {
-    setFetchError('')
     getComplianceDashboard()
-      .then(setDashboard)
+      .then((data) => {
+        setDashboard(data)
+        setFetchError('')
+      })
       .catch((err) => {
         const error = err instanceof Error ? err : new Error(String(err));
         const isNetworkError = error instanceof TypeError || error.message === 'Failed to fetch' || error.message === 'Network Error';
@@ -255,11 +257,19 @@ export default function AdmCompliance({ adminName }: Props) {
           <select value={locFilter} onChange={e => setLocFilter(e.target.value)}
             style={{ fontSize:13, fontWeight:600, fontFamily:'inherit',
               color: locFilter !== 'all' ? 'var(--g7)' : '#1e293b',
-              background:'transparent', border:'none', outline:'none', cursor:'pointer', minWidth:160, maxWidth:220 }}>
+              background:'transparent', border:'none', outline:'none', cursor:'pointer', minWidth:160, maxWidth:260 }}>
             <option value="all">All Locations</option>
-            {sortedRows.slice().sort((a,b)=>a.loc.name.localeCompare(b.loc.name)).map(r => (
-              <option key={r.loc.id} value={r.loc.id}>{r.loc.name}</option>
-            ))}
+            {sortedRows.slice().sort((a,b)=>a.loc.name.localeCompare(b.loc.name)).map(r => {
+              const gLoc = LOCATIONS.find(l => l.id === r.loc.id);
+              const cc = (r.loc as unknown as { costCenter?: string; cost_center?: string }).costCenter || 
+                         (r.loc as unknown as { costCenter?: string; cost_center?: string }).cost_center || 
+                         (gLoc as unknown as { costCenter?: string; cost_center?: string })?.costCenter || 
+                         (gLoc as unknown as { costCenter?: string; cost_center?: string })?.cost_center || 
+                         'N/A';
+              return (
+                <option key={r.loc.id} value={r.loc.id}>{r.loc.name} (CC: {cc})</option>
+              );
+            })}
           </select>
           {locFilter !== 'all' && (
             <button onClick={() => setLocFilter('all')}
