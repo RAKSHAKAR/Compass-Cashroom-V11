@@ -9,6 +9,8 @@ import type { ApiSubmission, ApiLocation } from '../../api/types'
 import KpiCard from '../../components/KpiCard'
 
 function mapApiSub(s: ApiSubmission): Submission {
+  // Ensure backend naive datetime strings are properly interpreted as UTC
+  const forceUTC = (d?: string) => (d && !d.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(d) ? d + 'Z' : d);
   return {
     id: s.id,
     locationId: s.location_id,
@@ -20,7 +22,7 @@ function mapApiSub(s: ApiSubmission): Submission {
     expectedCash: s.expected_cash,
     variance: s.variance,
     variancePct: s.variance_pct,
-    submittedAt: s.submitted_at ?? s.created_at,
+    submittedAt: forceUTC(s.submitted_at ?? s.created_at) as string,
     approvedBy: s.approved_by ?? undefined,
     approvedByName: s.approved_by_name ?? undefined,
     rejectionReason: s.rejection_reason ?? undefined,
@@ -38,20 +40,28 @@ interface Props {
 
 type FilterType = 'all' | 'pending_approval' | 'rejected' | 'missing' | 'approved'
 
-// Generate the last N days as YYYY-MM-DD strings (including today)
+// Generate the last N days as YYYY-MM-DD strings (using safe local time to avoid timezone shifts)
 function lastNDays(n: number): string[] {
   return Array.from({ length: n }, (_, i) => {
     const d = new Date()
     d.setDate(d.getDate() - i)
-    return d.toISOString().split('T')[0]
+    const year = d.getFullYear()
+    const month = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
   })
 }
 
 function friendlyDate(dateStr: string): string {
   const d = new Date(dateStr + 'T12:00:00')
   const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1)
+  const yYear = yesterday.getFullYear()
+  const yMonth = String(yesterday.getMonth() + 1).padStart(2, '0')
+  const yDay = String(yesterday.getDate()).padStart(2, '0')
+  const yesterdayStr = `${yYear}-${yMonth}-${yDay}`
+  
   if (dateStr === todayStr()) return 'Today'
-  if (dateStr === yesterday.toISOString().split('T')[0]) return 'Yesterday'
+  if (dateStr === yesterdayStr) return 'Yesterday'
   return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
 }
 
@@ -536,7 +546,7 @@ export default function OpStart({ locationIds, userName, onNavigate }: Props) {
                           <div style={{ fontSize: 11, color: 'var(--ts)' }}>{row.date}</div>
                           {row.sub?.submittedAt && (
                             <div style={{ fontSize: 10, color: 'var(--ts)' }}>
-                              Submitted {new Date(row.sub.submittedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                              Submitted {new Date(row.sub.submittedAt.endsWith('Z') ? row.sub.submittedAt : row.sub.submittedAt + 'Z').toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
                             </div>
                           )}
                         </td>

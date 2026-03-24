@@ -103,12 +103,13 @@ export default function OpReadonly({ ctx, onNavigate }: Props) {
     if (!ctx.submissionId) return
     getSubmission(ctx.submissionId)
       .then(s => {
+        const forceUTC = (d?: string) => (d && !d.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(d) ? d + 'Z' : d);
         setApiSub({
           id: s.id, locationId: s.location_id, operatorName: s.operator_name,
           date: s.submission_date, status: s.status, source: s.source,
           totalCash: s.total_cash, expectedCash: s.expected_cash,
           variance: s.variance, variancePct: s.variance_pct,
-          submittedAt: s.submitted_at ?? s.created_at,
+          submittedAt: forceUTC(s.submitted_at ?? s.created_at) as string,
           approvedBy: s.approved_by ?? undefined, approvedByName: s.approved_by_name ?? undefined,
           rejectionReason: s.rejection_reason ?? undefined,
           varianceNote: s.variance_note ?? undefined,
@@ -290,7 +291,8 @@ export default function OpReadonly({ ctx, onNavigate }: Props) {
   }
 
   const dateLabel      = new Date(sub.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
-  const submittedLabel = new Date(sub.submittedAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+  const safeSubmittedAt = sub.submittedAt.endsWith('Z') ? sub.submittedAt : sub.submittedAt + 'Z'
+  const submittedLabel = new Date(safeSubmittedAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
   const isToday        = sub.date === todayStr()
   const pastRejected   = !isToday && effStatus === 'rejected'
 
