@@ -145,27 +145,16 @@ const PERIOD_OPTIONS: Record<Granularity, { label: string; n: number }[]> = {
 }
 
 // ── CSV export ─────────────────────────────────────────────────────────────
-function downloadCSV(granularity: Granularity, periodN: number) {
-  const allLocs = [
-    { id: 'all', name: 'All Locations' },
-    ...LOCATIONS.filter(l => l.active).map(l => ({ id: l.id, name: l.name })),
-  ]
+function downloadCSV(chartData: DataPoint[], sectionKey: string, activeSecLabel: string, locationId: string, granularity: Granularity) {
+  const locName = locationId === 'all' ? 'All Locations' : (LOCATIONS.find(l => l.id === locationId)?.name || locationId)
 
-  const headers = [
-    'Location', 'Period',
-    ...SECTIONS.map(s => `${s.short} - ${s.label}`),
-    'Total',
-  ]
+  // Header specifically targets the data actively being viewed
+  const headers = ['Location', 'Period', 'Granularity', `Section ${activeSecLabel}`]
 
-  const rows: string[][] = []
-  for (const loc of allLocs) {
-    const pts = genPts(loc.id, granularity, periodN)
-    for (const pt of pts) {
-      const secValues = SECTIONS.map(s => String(pt[s.key] ?? 0))
-      const total = SECTIONS.reduce((sum, s) => sum + ((pt[s.key] as number) ?? 0), 0)
-      rows.push([loc.name, pt.period, ...secValues, String(total)])
-    }
-  }
+  const rows: string[][] = chartData.map(pt => {
+    const val = pt[sectionKey] !== undefined ? String(pt[sectionKey]) : '0'
+    return [locName, pt.period, granularity, val]
+  })
 
   const csv = [headers, ...rows]
     .map(row => row.map(cell => `"${cell.replace(/"/g, '""')}"`).join(','))
@@ -282,7 +271,7 @@ export default function RcTrends({ adminName }: Props) {
           <button
             className="btn btn-outline"
             style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}
-            onClick={() => downloadCSV(granularity, effectivePeriodN)}
+            onClick={() => downloadCSV(chartData, sectionKey, activeSec.label, locationId, granularity)}
           >
             ↓ Download CSV
           </button>
@@ -534,7 +523,10 @@ export default function RcTrends({ adminName }: Props) {
                 tickLine={false}
               />
               <YAxis
-                tickFormatter={v => `$${((v as number) / 1000).toFixed(1)}k`}
+                tickFormatter={v => {
+                  const num = v as number;
+                  return num < 0 ? `-$${(Math.abs(num) / 1000).toFixed(1)}k` : `$${(num / 1000).toFixed(1)}k`;
+                }}
                 tick={{ fontSize: 11, fill: '#888' }}
                 axisLine={false}
                 tickLine={false}

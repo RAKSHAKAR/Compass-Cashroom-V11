@@ -117,7 +117,8 @@ def make_submission(loc_id, loc_name, op_id, op_name, ctrl_id, ctrl_name, sub_da
                     status, expected, source=None, approved_at_date=None,
                     rejected=False, rejection_reason=None):
     sections = realistic_sections(expected)
-    total    = total_from_sections(sections)
+    # Testing Fix: Force a random variance so K and L show different values
+    total    = round(expected + random.uniform(-150, 150), 2)
     variance = round(total - expected, 2)
     var_pct  = round((variance / expected) * 100, 2) if expected else 0
     exc      = abs(var_pct) > 5.0

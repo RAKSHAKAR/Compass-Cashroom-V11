@@ -212,15 +212,18 @@ def get_section_trends(
 
     bucket: dict = defaultdict(list)
     for s in subs:
-        pkey = _period_key(s.submission_date)
+        period = _period_key(s.submission_date)
         if section == "K":
-            bucket[pkey].append(float(s.total_cash))
+            # Map K to the total_cash column
+            bucket[period].append(float(s.total_cash))
         elif section == "L":
-            bucket[pkey].append(float(s.variance))
+            # Map L to the variance column
+            bucket[period].append(float(s.variance))
         else:
+            # Default logic for A-J (JSON lookup)
             sec = s.sections.get(section, {})
             if isinstance(sec, dict) and "total" in sec:
-                bucket[pkey].append(float(sec["total"]))
+                bucket[period].append(float(sec["total"]))
 
     all_periods = sorted(bucket.keys(), reverse=True)[:periods]
     all_periods = sorted(all_periods)
