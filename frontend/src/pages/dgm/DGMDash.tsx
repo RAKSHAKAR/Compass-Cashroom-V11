@@ -473,7 +473,8 @@ export default function DGMDash({ dgmName, locationIds, ctx, onNavigate }: Props
           <option value="all">📍 All Locations ({locationIds.length})</option>
           {locationIds.map(id => {
             const loc = getLocation(id)
-            return <option key={id} value={id}>{loc?.name ?? id}{loc?.cost_center ? ` (CC: ${loc.cost_center})` : ''}</option>
+            const cc = (loc as unknown as { costCenter?: string; cost_center?: string })?.costCenter || (loc as unknown as { costCenter?: string; cost_center?: string })?.cost_center || 'N/A'
+            return <option key={id} value={id}>{loc?.name ?? id} (CC: {cc})</option>
           })}
         </select>
       </div>
@@ -542,9 +543,7 @@ export default function DGMDash({ dgmName, locationIds, ctx, onNavigate }: Props
                         </td>
                         <td>
                           <div style={{ fontWeight: 500, fontSize: 13 }}>{loc?.name ?? v.locationId}</div>
-                          {loc?.cost_center && (
-                            <div style={{ fontSize: 11, color: 'var(--ts)' }}>CC: {loc.cost_center}</div>
-                          )}
+                          <div style={{ fontSize: 11, color: 'var(--ts)' }}>CC: {(loc as unknown as { costCenter?: string; cost_center?: string })?.costCenter || (loc as unknown as { costCenter?: string; cost_center?: string })?.cost_center || 'N/A'}</div>
                         </td>
                         <td><StatusBadge status={v.status} isOverdue={(v as DashRecord).isOverdue} /></td>
                         <td style={{ textAlign: 'right', fontFamily: 'DM Serif Display,serif', fontSize: 15 }}>

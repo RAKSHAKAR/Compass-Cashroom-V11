@@ -223,7 +223,7 @@ export default function OpStart({ locationIds, userName, onNavigate }: Props) {
             }}>
               📍 {location?.name ?? locationId}
               <span style={{ color: 'var(--g5)', fontFamily: 'monospace', fontSize: 11 }}>
-                ({location?.cost_center ?? locationId})
+                (CC: {(location as unknown as { costCenter?: string; cost_center?: string })?.costCenter || (location as unknown as { costCenter?: string; cost_center?: string })?.cost_center || 'N/A'})
               </span>
             </span>
             <span style={{ fontSize: 12, color: 'var(--ts)' }}>{todayDateLabel}</span>

@@ -43,13 +43,34 @@ export default function CtrlDgmReview({ locationIds }: Props) {
   }, [locationIds.join(',')]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reviews — read from persistent store (read-only; DGM updates these when completing visits)
-  const [verifReviews] = useState<Record<string, VerificationReview>>(
-    () => ({ ...VERIFICATION_REVIEWS })
-  )
+  const [verifReviews] = useState<Record<string, VerificationReview>>(() => {
+    try {
+      const raw = localStorage.getItem('compass_verification_reviews') || localStorage.getItem('compass_dgm_reviews')
+      const parsed = raw ? JSON.parse(raw) : {}
+      return { ...VERIFICATION_REVIEWS, ...parsed }
+    } catch {
+      return { ...VERIFICATION_REVIEWS }
+    }
+  })
+
+  // Bridge the gap for backend-seeded visits that lack a local storage review
+  const getEffectiveReview = (v: VerificationRecord): VerificationReview | null => {
+    if (verifReviews[v.id]) return verifReviews[v.id]
+    if (v.status === 'completed') {
+      return {
+        verificationId: v.id,
+        outcome: 'approved',
+        reviewedBy: v.verifierName || 'System',
+        reviewedAt: v.date + 'T12:00:00Z',
+        sections: SECTIONS.reduce((acc, k) => ({ ...acc, [k]: { decision: 'accept', note: '' } }), {} as VerificationReview['sections'])
+      }
+    }
+    return null
+  }
 
   const pastVisits = useMemo(() => {
     // 1. Read DGM session updates to get the latest statuses (Completed/Missed)
-    let dgmUpdates: Record<string, { status: string; notes?: string; observedTotal?: number }> = {}
+    let dgmUpdates: Record<string, { status: 'scheduled' | 'completed' | 'missed' | 'cancelled'; notes?: string; observedTotal?: number }> = {}
     try {
       const saved = sessionStorage.getItem('dgm_session_updates')
       if (saved) dgmUpdates = JSON.parse(saved)
@@ -66,7 +87,7 @@ export default function CtrlDgmReview({ locationIds }: Props) {
         if (!upd) return v
         return { 
           ...v, 
-          status: upd.status,
+          status: upd.status as 'scheduled' | 'completed' | 'missed' | 'cancelled',
           notes: upd.notes ?? v.notes,
           observedTotal: upd.observedTotal !== undefined ? upd.observedTotal : v.observedTotal
         }
@@ -103,8 +124,8 @@ export default function CtrlDgmReview({ locationIds }: Props) {
   const totalCompleted  = rows.filter(v => v.status === 'completed').length
   const totalMissed     = rows.filter(v => v.status === 'missed').length
   const totalScheduled  = rows.filter(v => v.status === 'scheduled').length
-  const reviewedCount   = rows.filter(v => verifReviews[v.id]).length
-  const rejectedCount   = rows.filter(v => verifReviews[v.id]?.outcome === 'rejected').length
+  const reviewedCount   = rows.filter(v => getEffectiveReview(v)).length
+  const rejectedCount   = rows.filter(v => getEffectiveReview(v)?.outcome === 'rejected').length
 
   // Pagination
   const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE))
@@ -236,7 +257,8 @@ export default function CtrlDgmReview({ locationIds }: Props) {
           <option value="all" style={{ background: '#fff', color: 'var(--td)' }}>📍 All Locations ({locationIds.length})</option>
           {locationIds.map(id => {
             const loc = getLocation(id)
-            return <option key={id} value={id} style={{ background: '#fff', color: 'var(--td)' }}>{loc?.name ?? id}</option>
+            const cc = (loc as unknown as { costCenter?: string; cost_center?: string })?.costCenter || (loc as unknown as { costCenter?: string; cost_center?: string })?.cost_center || 'N/A'
+            return <option key={id} value={id} style={{ background: '#fff', color: 'var(--td)' }}>{loc?.name ?? id} (CC: {cc})</option>
           })}
         </select>
       </div>
@@ -277,7 +299,7 @@ export default function CtrlDgmReview({ locationIds }: Props) {
               <tbody>
                 {pageRows.map(v => {
                   const loc       = getLocation(v.locationId)
-                  const review    = verifReviews[v.id]
+                  const review    = getEffectiveReview(v)
                   const isExpanded = expandedId === v.id
                   const dateLabel = new Date(v.date + 'T12:00:00').toLocaleDateString('en-GB', {
                     day: 'numeric', month: 'short', year: 'numeric',
@@ -298,7 +320,7 @@ export default function CtrlDgmReview({ locationIds }: Props) {
                         {/* Location */}
                         <td>
                           <div style={{ fontWeight: 500, fontSize: 13 }}>{loc?.name ?? v.locationId}</div>
-                          <div style={{ fontSize: 11, color: 'var(--ts)', fontFamily: 'monospace' }}>{v.locationId}</div>
+                          <div style={{ fontSize: 11, color: 'var(--ts)', fontFamily: 'monospace' }}>CC: {(loc as unknown as { costCenter?: string; cost_center?: string })?.costCenter || (loc as unknown as { costCenter?: string; cost_center?: string })?.cost_center || 'N/A'}</div>
                         </td>
 
                         {/* DGM Name */}

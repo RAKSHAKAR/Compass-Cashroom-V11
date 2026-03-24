@@ -275,9 +275,10 @@ export default function MgrApprovals({ managerName, locationIds, onNavigate }: P
           <option value="all">📍 All Locations ({locationIds.length})</option>
           {locationIds.map(id => {
             const loc = apiLocations.find(l => l.id === id) || getLocation(id)
+            const cc = (loc as unknown as { costCenter?: string; cost_center?: string })?.costCenter || (loc as unknown as { costCenter?: string; cost_center?: string })?.cost_center || 'N/A'
             return (
               <option key={id} value={id}>
-                {loc?.name ?? id}{loc?.cost_center ? ` (CC: ${loc.cost_center})` : ''}
+                {loc?.name ?? id} (CC: {cc})
               </option>
             )
           })}
@@ -400,7 +401,7 @@ export default function MgrApprovals({ managerName, locationIds, onNavigate }: P
                       <tr style={{ background: isOver ? 'var(--red-bg)' : undefined }}>
                         <td>
                           <div style={{ fontWeight: 500, fontSize: 13 }}>{loc?.name ?? sub.locationId}</div>
-                          {loc?.cost_center && <div style={{ fontSize: 11, color: 'var(--ts)', fontFamily: 'monospace' }}>{loc.cost_center}</div>}
+                          <div style={{ fontSize: 11, color: 'var(--ts)', fontFamily: 'monospace' }}>CC: {(loc as unknown as { costCenter?: string; cost_center?: string })?.costCenter || (loc as unknown as { costCenter?: string; cost_center?: string })?.cost_center || 'N/A'}</div>
                         </td>
                         <td style={{ fontSize: 13 }}>{sub.operatorName}</td>
                         <td>

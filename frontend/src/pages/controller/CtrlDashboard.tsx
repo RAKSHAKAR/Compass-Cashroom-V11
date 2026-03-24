@@ -524,10 +524,11 @@ export default function CtrlDashboard({ controllerName, locationIds, ctx, onNavi
             backgroundRepeat: 'no-repeat', backgroundPosition: 'right 9px center',
           }}
         >
-          <option value="all" style={{ color: '#1f2937', backgroundColor: '#ffffff' }}>📍 All Locations ({locationIds.length})</option>
+          <option value="all" style={{ background: '#fff', color: 'var(--td)' }}>📍 All Locations ({locationIds.length})</option>
           {locationIds.map(id => {
-            const loc = apiLocations.find(l => l.id === id) || getLocation(id)
-            return <option key={id} value={id} style={{ color: '#1f2937', backgroundColor: '#ffffff' }}>{loc?.name ?? id}{loc?.cost_center ? ` (CC: ${loc.cost_center})` : ''}</option>
+            const loc = getLocation(id)
+            const cc = (loc as unknown as { costCenter?: string; cost_center?: string })?.costCenter || (loc as unknown as { costCenter?: string; cost_center?: string })?.cost_center || 'N/A'
+            return <option key={id} value={id} style={{ background: '#fff', color: 'var(--td)' }}>{loc?.name ?? id} (CC: {cc})</option>
           })}
         </select>
         
@@ -672,9 +673,7 @@ export default function CtrlDashboard({ controllerName, locationIds, ctx, onNavi
                         {/* Location */}
                         <td>
                           <div style={{ fontWeight: 500, fontSize: 13 }}>{loc?.name ?? v.locationId}</div>
-                          {loc?.cost_center && (
-                            <div style={{ fontSize: 11, color: 'var(--ts)' }}>CC: {loc.cost_center}</div>
-                          )}
+                          <div style={{ fontSize: 11, color: 'var(--ts)', fontFamily: 'monospace' }}>CC: {(loc as unknown as { costCenter?: string; cost_center?: string })?.costCenter || (loc as unknown as { costCenter?: string; cost_center?: string })?.cost_center || 'N/A'}</div>
                         </td>
 
                         {/* Status */}
