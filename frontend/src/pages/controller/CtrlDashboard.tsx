@@ -1,11 +1,12 @@
 import { useState, useMemo, useEffect, useRef, Fragment } from 'react'
 import { VERIFICATIONS, SUBMISSIONS, formatCurrency, IMPREST, getLocation } from '../../mock/data'
 import type { VerificationRecord } from '../../mock/data'
-import { listControllerVerifications, completeControllerVisit, missControllerVisit } from '../../api/verifications'
+import { listControllerVerifications, completeControllerVisit, missControllerVisit, cancelControllerVisit } from '../../api/verifications'
 import { listSubmissions } from '../../api/submissions'
 import { listLocations } from '../../api/locations'
 import type { ApiVerification, ApiLocation } from '../../api/types'
 import KpiCard from '../../components/KpiCard'
+import { getToken } from '../../api/client'
 
 
 function mapApiVerification(v: ApiVerification): VerificationRecord {
@@ -56,7 +57,7 @@ function pageNums(cur: number, total: number): (number | 'gap')[] {
 type StatusFilter = 'all' | 'scheduled' | 'completed' | 'missed'
 
 type SessionUpdate = {
-  status: 'completed' | 'missed'
+  status: 'completed' | 'missed' | 'cancelled'
   observedTotal?: number
   missedReason?: string
   notes?: string
@@ -98,6 +99,7 @@ export default function CtrlDashboard({ controllerName, locationIds, ctx, onNavi
   const [apiLocations,   setApiLocations]  = useState<ApiLocation[]>([])
 
   useEffect(() => {
+    if (!getToken()) return; // Demo Mode bypass
     listLocations().then(setApiLocations).catch(() => {})
   }, [])
 
@@ -183,25 +185,42 @@ export default function CtrlDashboard({ controllerName, locationIds, ctx, onNavi
   const [mNotes,  setMNotes]  = useState('')
   const [mErrors, setMErrors] = useState<Record<string, string>>({})
 
-  // Session overrides for optimistic UI only — NOT persisted to sessionStorage.
-  // The API fetches fresh status on every mount, so stale sessionStorage is not needed.
-  const [sessionUpdates, setSessionUpdates] = useState<Record<string, SessionUpdate>>({})
+  // Session overrides persist locally for Demo Mode and Optimistic UI
+  const [sessionUpdates, setSessionUpdates] = useState<Record<string, SessionUpdate>>(() => {
+    try {
+      return JSON.parse(sessionStorage.getItem('ctrl_session_updates') || '{}')
+    } catch {
+      return {}
+    }
+  })
+
+  useEffect(() => {
+    sessionStorage.setItem('ctrl_session_updates', JSON.stringify(sessionUpdates))
+  }, [sessionUpdates])
 
   // API-fetched verifications — overlay over mock data
+  const [isLoading, setIsLoading] = useState(!!getToken())
   const [apiVerifs, setApiVerifs] = useState<VerificationRecord[]>([])
   // Map of locationId_date to { status, id }
   const [apiSubsMap, setApiSubsMap] = useState<Record<string, { status: string; id: string; totalCash: number }>>({})
 
-  // Clear any stale sessionStorage from old code so it doesn't affect other reads
-  useEffect(() => {
-    sessionStorage.removeItem('ctrl_session_updates')
-  }, [])
-
   // FIX: Extract expression to a variable and include locationIds in dependency array
   const locIdsJoined = locationIds.join(',')
   useEffect(() => {
+    if (!getToken()) {
+      // Demo Mode Bypass: Instantly fall back to local mock data
+      Promise.resolve().then(() => {
+        setApiVerifs([])
+        setApiSubsMap({})
+        setIsLoading(false)
+      })
+      return
+    }
+
+    Promise.resolve().then(() => setIsLoading(true))
+    
     // 1. Fetch Verifications
-    listControllerVerifications({ page_size: 100 })
+    const p1 = listControllerVerifications({ page_size: 100 })
       .then(r => {
         const mapped = r.items.map(mapApiVerification).filter(v => locationIds.includes(v.locationId))
         setApiVerifs(mapped)
@@ -209,8 +228,8 @@ export default function CtrlDashboard({ controllerName, locationIds, ctx, onNavi
       .catch(() => { /* fall back to mock */ })
 
     // 2. Fetch submissions to check approval status
-    if (locationIds.length > 0) {
-      Promise.all(locationIds.map(id => listSubmissions({ location_id: id, page_size: 100 }).then(r => r.items)))
+    const p2 = locationIds.length > 0
+      ? Promise.all(locationIds.map(id => listSubmissions({ location_id: id, page_size: 100 }).then(r => r.items)))
         .then(arrays => {
           const flats = arrays.flat()
           const map: Record<string, { status: string; id: string; totalCash: number }> = {}
@@ -220,7 +239,9 @@ export default function CtrlDashboard({ controllerName, locationIds, ctx, onNavi
           setApiSubsMap(map)
         })
         .catch(() => { /* fall back to mock */ })
-    }
+      : Promise.resolve()
+
+    Promise.all([p1, p2]).finally(() => setIsLoading(false))
   }, [locationIds, locIdsJoined]) 
 
   // Helper function to get submission status dynamically
@@ -264,7 +285,7 @@ export default function CtrlDashboard({ controllerName, locationIds, ctx, onNavi
     setExpandAction(action)
   }
 
-  const sourceVerifs = apiVerifs.length > 0 ? apiVerifs : VERIFICATIONS.filter(v => v.type === 'controller' && locationIds.includes(v.locationId))
+  const sourceVerifs = !getToken() ? VERIFICATIONS.filter(v => v.type === 'controller' && locationIds.includes(v.locationId)) : apiVerifs
 
   // All controller records for my locations, merged with session overrides
   const allRecords = useMemo<VerificationRecord[]>(() =>
@@ -272,7 +293,7 @@ export default function CtrlDashboard({ controllerName, locationIds, ctx, onNavi
       .map(v => {
         const upd = sessionUpdates[v.id]
         if (!upd) return v
-        const merged: VerificationRecord = { ...v, status: upd.status }
+        const merged: VerificationRecord = { ...v, status: upd.status as unknown as VerificationRecord['status'] }
         if (upd.observedTotal !== undefined) merged.observedTotal = upd.observedTotal
         if (upd.missedReason)               merged.missedReason  = upd.missedReason
         if (upd.notes)                      merged.notes         = upd.notes
@@ -285,7 +306,7 @@ export default function CtrlDashboard({ controllerName, locationIds, ctx, onNavi
 
   // Filtered rows
   const rows = useMemo(() => {
-    let r = allRecords
+    let r = allRecords.filter(v => v.status !== 'cancelled')
     if (locationFilter !== 'all') r = r.filter(v => v.locationId === locationFilter)
     if (statusFilter   !== 'all') r = r.filter(v => v.status === statusFilter)
     return r
@@ -316,7 +337,9 @@ export default function CtrlDashboard({ controllerName, locationIds, ctx, onNavi
 
   // ── Filter chip counts (location-aware) ─────────────────────────────────
   const counts = useMemo(() => {
-    const base = locationFilter === 'all' ? allRecords : allRecords.filter(v => v.locationId === locationFilter)
+    const base = locationFilter === 'all' 
+      ? allRecords.filter(v => v.status !== 'cancelled') 
+      : allRecords.filter(v => v.locationId === locationFilter && v.status !== 'cancelled')
     return {
       all:       base.length,
       scheduled: base.filter(v => v.status === 'scheduled').length,
@@ -379,9 +402,13 @@ export default function CtrlDashboard({ controllerName, locationIds, ctx, onNavi
     if (!cSig)                            e.sig  = 'Please sign before confirming.'
     if (Object.keys(e).length) { setCErrors(e); return }
 
-    try {
-      await completeControllerVisit(id, { observed_total: obs, signature_data: cSig, notes: cNotes.trim() || undefined })
-    } catch { /* demo mode — fall back to local session update */ }
+    if (getToken()) {
+      try {
+        await completeControllerVisit(id, { observed_total: obs, signature_data: cSig, notes: cNotes.trim() || undefined })
+      } catch (err) {
+        console.error('Failed to complete visit', err)
+      }
+    }
 
     setSessionUpdates(prev => ({
       ...prev,
@@ -396,14 +423,34 @@ export default function CtrlDashboard({ controllerName, locationIds, ctx, onNavi
     if (!mReason) e.reason = 'Please select a reason.'
     if (Object.keys(e).length) { setMErrors(e); return }
 
-    try {
-      await missControllerVisit(id, { missed_reason: mReason, notes: mNotes.trim() || undefined })
-    } catch { /* demo mode */ }
+    if (getToken()) {
+      try {
+        await missControllerVisit(id, { missed_reason: mReason, notes: mNotes.trim() || undefined })
+      } catch (err) {
+        console.error('Failed to mark visit as missed', err)
+      }
+    }
 
     setSessionUpdates(prev => ({
       ...prev,
       [id]: { status: 'missed', missedReason: mReason, notes: mNotes.trim() },
     }))
+    closeExpand()
+  }
+
+  const [cancelId, setCancelId] = useState<string | null>(null)
+
+  async function handleConfirmCancel() {
+    if (!cancelId) return
+    if (getToken()) {
+      try {
+        await cancelControllerVisit(cancelId)
+      } catch (err) {
+        console.error('Failed to cancel visit', err)
+      }
+    }
+    setSessionUpdates(prev => ({ ...prev, [cancelId]: { status: 'cancelled' } }))
+    setCancelId(null)
     closeExpand()
   }
 
@@ -587,7 +634,13 @@ export default function CtrlDashboard({ controllerName, locationIds, ctx, onNavi
           </span>
         </div>
         <div className="card-body" style={{ padding: 0 }}>
-          {rows.length === 0 ? (
+          {isLoading ? (
+            <div style={{ padding: '64px 32px', textAlign: 'center' }}>
+              <div style={{ display: 'inline-block', width: 28, height: 28, border: '3px solid var(--ow2)', borderTopColor: 'var(--g4)', borderRadius: '50%', animation: 'spin 1s linear infinite', marginBottom: 16 }}></div>
+              <div style={{ fontWeight: 600, color: 'var(--ts)', fontSize: 14 }}>Loading your dashboard...</div>
+              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+            </div>
+          ) : rows.length === 0 ? (
             <div style={{ padding: '48px 32px', textAlign: 'center' }}>
               <div style={{ fontSize: 36, marginBottom: 10 }}>📋</div>
               <div style={{ fontWeight: 600, marginBottom: 6 }}>No records found</div>
@@ -606,7 +659,7 @@ export default function CtrlDashboard({ controllerName, locationIds, ctx, onNavi
                 <col style={{ width: 110 }} />
                 <col style={{ width: 80 }} />
                 <col style={{ width: 140 }} />
-                <col style={{ width: 145 }} /> {/* Increased Status width from 120px to 145px */}
+                <col style={{ width: 145 }} />
                 <col style={{ width: 120 }} />
                 <col style={{ width: 110 }} />
                 <col />
@@ -735,6 +788,13 @@ export default function CtrlDashboard({ controllerName, locationIds, ctx, onNavi
                                 onClick={() => openExpand(v.id, 'miss')}
                               >
                                 Mark as Missed
+                              </button>
+                              <button
+                                className="btn btn-ghost"
+                                style={{ fontSize: 11, padding: '4px 12px', color: 'var(--ts)' }}
+                                onClick={() => setCancelId(v.id)}
+                              >
+                                ⊘ Cancel
                               </button>
                             </div>
                           ) : v.status === 'completed' ? (
@@ -1145,6 +1205,25 @@ export default function CtrlDashboard({ controllerName, locationIds, ctx, onNavi
 
         </div>
       </div>
+
+      {/* Custom Cancellation Modal */}
+      {cancelId && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(2px)'
+        }}>
+          <div className="card fade-up" style={{ width: 400, maxWidth: '90vw', padding: '24px', margin: 0, boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)' }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--td)', marginBottom: 12 }}>Cancel Visit</div>
+            <div style={{ fontSize: 14, color: 'var(--ts)', marginBottom: 24, lineHeight: 1.5 }}>
+              Are you sure you want to cancel this scheduled visit?
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+              <button className="btn btn-ghost" style={{ fontSize: 13 }} onClick={() => setCancelId(null)}>Cancel</button>
+              <button className="btn" style={{ background: 'var(--red)', color: '#fff', border: 'none', fontSize: 13, padding: '8px 16px', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }} onClick={handleConfirmCancel}>Yes, Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   )

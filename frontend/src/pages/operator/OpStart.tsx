@@ -7,6 +7,7 @@ import { listSubmissions } from '../../api/submissions'
 import { listLocations } from '../../api/locations'
 import type { ApiSubmission, ApiLocation } from '../../api/types'
 import KpiCard from '../../components/KpiCard'
+import { getToken } from '../../api/client'
 
 function mapApiSub(s: ApiSubmission): Submission {
   const forceUTC = (d?: string | null) => (d && !d.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(d) ? d + 'Z' : d);
@@ -81,39 +82,69 @@ export default function OpStart({ locationIds, userName, onNavigate }: Props) {
   const [fetchError, setFetchError] = useState('')
   const PAGE_SIZE = 10
 
-  // Fetch location details from API to get cost_center and other live data
-  useEffect(() => {
-    if (!locationId) return
-    listLocations().then(locs => {
-      const found = locs.find(l => l.id === locationId) ?? null
-      setLocation(found)
-    }).catch(() => { /* keep null */ })
-  }, [locationId])
+  const [isLoading, setIsLoading] = useState(!!getToken())
 
   // API-fetched submissions — overlay over mock data when available
   const [apiSubs, setApiSubs] = useState<Submission[]>([])
   useEffect(() => {
     if (!locationId) return
+    if (!getToken()) {
+      Promise.resolve().then(() => {
+        setApiSubs([]);
+        setFetchError('');
+        setIsLoading(false);
+      });
+      return;
+    }
+
+    Promise.resolve().then(() => setIsLoading(true));
+
+    const p1 = listLocations().then(locs => {
+      const found = locs.find(l => l.id === locationId) ?? null
+      setLocation(found)
+    }).catch(() => { /* keep null */ })
+
     // Lowered page_size to 100 to pass backend validation limits
-    listSubmissions({ location_id: locationId, page_size: 100 })
+    const p2 = listSubmissions({ location_id: locationId, page_size: 100 })
       .then(r => { setApiSubs(r.items.map(mapApiSub)); setFetchError(''); })
       .catch(() => { setFetchError('Could not reach the server. Make sure the backend is running on port 8000.'); })
+
+    Promise.all([p1, p2]).finally(() => setIsLoading(false))
   }, [locationId])
+
+  // API-fetched drafts
+  const [apiDrafts, setApiDrafts] = useState<Array<ApiSubmission & { sections?: Record<string, number> }>>([])
+  useEffect(() => {
+    if (!locationId) return
+    if (!getToken()) {
+      setApiDrafts([])
+      return
+    }
+    listSubmissions({ status: 'draft', location_id: locationId, page_size: 100 })
+      .then(r => setApiDrafts(r.items))
+      .catch(() => {})
+  }, [locationId])
+
+  const activeDrafts = useMemo(() => {
+    if (!getToken()) return DRAFTS
+    return apiDrafts.map(d => ({
+      id: d.id, locationId: d.location_id, date: d.submission_date,
+      savedAt: d.updated_at || d.created_at, sections: d.sections || {},
+      totalSoFar: d.total_cash
+    }))
+  }, [apiDrafts])
 
   // Reset to page 0 whenever filter changes
   useEffect(() => { setPage(0) }, [filter])
 
   const sourceSubs = useMemo(() => {
-    if (apiSubs.length === 0) return SUBMISSIONS
-    // Include any mock-only entries (e.g. submitted via fallback when API was unreachable)
-    const apiIds = new Set(apiSubs.map(s => s.id))
-    const mockOnly = SUBMISSIONS.filter(s => !apiIds.has(s.id))
-    return mockOnly.length > 0 ? [...apiSubs, ...mockOnly] : apiSubs
+    if (!getToken()) return SUBMISSIONS
+    return apiSubs
   }, [apiSubs])
 
   // ── Today ──────────────────────────────────────────────────────────────
-  const todaySub = sourceSubs.find(s => s.locationId === locationId && s.date === todayStr())
-  const todayDraft = DRAFTS.find(d => d.locationId === locationId && d.date === todayStr())
+  const todaySub = sourceSubs.find(s => s.locationId === locationId && s.date === todayStr() && s.status !== 'draft')
+  const todayDraft = activeDrafts.find(d => d.locationId === locationId && d.date === todayStr())
   const todaySubmitted = !!todaySub
 
   // ── Build history rows (last 90 days, including today) ──
@@ -206,7 +237,7 @@ export default function OpStart({ locationIds, userName, onNavigate }: Props) {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
   })
 
-  const draftCount = DRAFTS.length
+  const draftCount = activeDrafts.length
 
   return (
     <div className="fade-up">
@@ -258,7 +289,13 @@ export default function OpStart({ locationIds, userName, onNavigate }: Props) {
 
       {/* ── Today's Status card ── */}
       <div style={{ marginBottom: 20 }}>
-        {todaySubmitted && todaySub ? (
+        {isLoading ? (
+          <div style={{ borderRadius: 12, padding: '48px 24px', background: '#fff', border: '1px solid var(--ow2)', textAlign: 'center' }}>
+            <div style={{ display: 'inline-block', width: 28, height: 28, border: '3px solid var(--ow2)', borderTopColor: 'var(--g4)', borderRadius: '50%', animation: 'spin 1s linear infinite', marginBottom: 16 }}></div>
+            <div style={{ fontWeight: 600, color: 'var(--ts)', fontSize: 14 }}>Loading your dashboard...</div>
+            <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+          </div>
+        ) : todaySubmitted && todaySub ? (
           <div style={{
             borderRadius: 12, padding: '20px 24px',
             background: todaySub.status === 'approved' ? 'var(--g0)'
@@ -511,7 +548,12 @@ export default function OpStart({ locationIds, userName, onNavigate }: Props) {
           </span>
         </div>
         <div className="card-body" style={{ padding: 0 }}>
-          {filtered.length === 0 ? (
+          {isLoading ? (
+            <div style={{ padding: '64px 32px', textAlign: 'center' }}>
+              <div style={{ display: 'inline-block', width: 28, height: 28, border: '3px solid var(--ow2)', borderTopColor: 'var(--g4)', borderRadius: '50%', animation: 'spin 1s linear infinite', marginBottom: 16 }}></div>
+              <div style={{ fontWeight: 600, color: 'var(--ts)', fontSize: 14 }}>Loading history...</div>
+            </div>
+          ) : filtered.length === 0 ? (
             <div style={{ padding: '32px', textAlign: 'center', color: 'var(--ts)', fontSize: 13 }}>
               {filter === 'missing'          ? 'No missed submissions in the last 90 days — great work!'
              : filter === 'pending_approval' ? 'No submissions currently pending approval.'

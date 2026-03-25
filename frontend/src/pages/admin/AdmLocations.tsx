@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { LOCATIONS, saveStored, formatCurrency } from '../../mock/data'
 import type { Location } from '../../mock/data'
 import { listLocations, createLocation, updateLocation, deactivateLocation, reactivateLocation } from '../../api/admin'
+import { getToken } from '../../api/client'
 import type { ApiLocation } from '../../api/types'
 
 function mapApiLocation(l: ApiLocation): Location {
@@ -22,7 +23,7 @@ function mapApiLocation(l: ApiLocation): Location {
 
 interface Props { adminName: string }
 
-const EMPTY_FORM = { id: '', name:'', expectedCash:'', tolerancePct:'' }
+const EMPTY_FORM = { id: '', cost_center: '', name:'', expectedCash:'', tolerancePct:'' }
 const PAGE_SIZE  = 10
 
 function pageNums(cur: number, total: number): (number | 'gap')[] {
@@ -35,12 +36,13 @@ function pageNums(cur: number, total: number): (number | 'gap')[] {
 const DEFAULTS_INIT: { tolerancePct: string; slaHours: string } = { tolerancePct: '5', slaHours: '48' }
 
 export default function AdmLocations({ adminName }: Props) {
-  const [locs,     setLocs]     = useState<Location[]>([...LOCATIONS])
+  const [locs,     setLocs]     = useState<Location[]>(() => !getToken() ? [...LOCATIONS] : [])
 
   useEffect(() => {
+    if (!getToken()) return; // Demo mode: stick with mock LOCATIONS, no API calls
     listLocations()
       .then(r => setLocs(r.items.map(mapApiLocation)))
-      .catch(() => { /* fall back to mock */ })
+      .catch(() => { setLocs([]) }) // Real users never fall back to mock
   }, [])
   const [mode,     setMode]     = useState<'add'|{id:string}|null>(null)
   const [form,     setForm]     = useState(EMPTY_FORM)
@@ -70,7 +72,7 @@ export default function AdmLocations({ adminName }: Props) {
     const idx = locs.findIndex(l => l.id === loc.id)
     if (idx >= 0) setPage(Math.floor(idx / PAGE_SIZE))
     setMode({id:loc.id})
-    setForm({ id: loc.id, name:loc.name, expectedCash:String(loc.expectedCash), tolerancePct:String(loc.tolerancePct) })
+    setForm({ id: loc.id, cost_center: loc.cost_center || loc.id, name:loc.name, expectedCash:String(loc.expectedCash), tolerancePct:String(loc.tolerancePct) })
     setErrors({})
     setConfirm(null)
   }
@@ -81,6 +83,8 @@ export default function AdmLocations({ adminName }: Props) {
     if (mode === 'add' && !form.id.trim()) e.id = 'Cost center required'
     if (mode === 'add' && form.id.trim() && !/^\d+$/.test(form.id.trim())) e.id = 'Cost center must be numeric'
     if (mode === 'add' && locs.some(l => l.id === form.id.trim())) e.id = 'ID must be unique'
+    
+    if (mode !== 'add' && form.cost_center !== undefined && !form.cost_center.trim()) e.cost_center = 'Cost center required'
     
     if (!form.name.trim()) {
       e.name = 'Name required'
@@ -101,6 +105,7 @@ export default function AdmLocations({ adminName }: Props) {
   }
 
   function syncToStorage(updated: Location[]) {
+    if (getToken()) return; // CRITICAL: Prevent real users from overwriting mock data
     LOCATIONS.splice(0, LOCATIONS.length, ...updated)
     saveStored('compass_locations', LOCATIONS)
   }
@@ -117,10 +122,12 @@ export default function AdmLocations({ adminName }: Props) {
         slaHours: Number(defaults.slaHours),
         active: true,
       }
-      try {
-        const created = await createLocation({ id: newLoc.id, name: newLoc.name, city: '', expected_cash: newLoc.expectedCash, tolerance_pct: newLoc.tolerancePct })
-        newLoc.id = created.id
-      } catch { /* demo mode */ }
+      if (getToken()) {
+        try {
+          const created = await createLocation({ id: newLoc.id, name: newLoc.name, city: '', expected_cash: newLoc.expectedCash, tolerance_pct: newLoc.tolerancePct })
+          newLoc.id = created.id
+        } catch (err) { console.error('Failed to create location', err) }
+      }
       setLocs(prev => {
         const next = [...prev, newLoc]
         syncToStorage(next)
@@ -129,9 +136,11 @@ export default function AdmLocations({ adminName }: Props) {
       })
       setSaved(`Location "${newLoc.name}" added.`)
     } else if (mode && typeof mode === 'object') {
-      try {
-        await updateLocation(mode.id, { name: form.name.trim(), expected_cash: Number(form.expectedCash), tolerance_pct: Number(form.tolerancePct) })
-      } catch { /* demo mode */ }
+      if (getToken()) {
+        try {
+          await updateLocation(mode.id, { name: form.name.trim(), expected_cash: Number(form.expectedCash), tolerance_pct: Number(form.tolerancePct) })
+        } catch (err) { console.error('Failed to update location', err) }
+      }
       setLocs(prev => {
         const next = prev.map(l => l.id === (mode as {id:string}).id
           ? { ...l, name:form.name.trim(), expectedCash:Number(form.expectedCash), tolerancePct:Number(form.tolerancePct) }
@@ -147,7 +156,9 @@ export default function AdmLocations({ adminName }: Props) {
   }
 
   async function handleDeactivate(id: string) {
-    try { await deactivateLocation(id) } catch { /* demo mode */ }
+    if (getToken()) {
+      try { await deactivateLocation(id) } catch (err) { console.error(err) }
+    }
     setLocs(prev => {
       const next = prev.map(l => l.id===id ? {...l, active:false} : l)
       syncToStorage(next)
@@ -159,7 +170,9 @@ export default function AdmLocations({ adminName }: Props) {
   }
 
   async function handleReactivate(id: string) {
-    try { await reactivateLocation(id) } catch { /* demo mode */ }
+    if (getToken()) {
+      try { await reactivateLocation(id) } catch (err) { console.error(err) }
+    }
     setLocs(prev => {
       const next = prev.map(l => l.id===id ? {...l, active:true} : l)
       syncToStorage(next)
@@ -299,6 +312,10 @@ export default function AdmLocations({ adminName }: Props) {
                       <tr key={loc.id+'-edit'} style={{background:'var(--g0)'}}>
                         <td colSpan={6}>
                           <div style={{display:'flex',gap:14,flexWrap:'wrap',padding:'12px 4px',alignItems:'flex-end'}}>
+                            <div style={{flex:'1 1 120px'}}>
+                              <label style={{fontSize:11,fontWeight:600,color:'var(--td)',display:'block',marginBottom:4}}>Cost Center</label>
+                              {F('cost_center')}{errors.cost_center&&<div style={{fontSize:11,color:'var(--red)'}}>{errors.cost_center}</div>}
+                            </div>
                             <div style={{flex:'1 1 180px'}}>
                               <label style={{fontSize:11,fontWeight:600,color:'var(--td)',display:'block',marginBottom:4}}>Name</label>
                               {F('name')}{errors.name&&<div style={{fontSize:11,color:'var(--red)'}}>{errors.name}</div>}

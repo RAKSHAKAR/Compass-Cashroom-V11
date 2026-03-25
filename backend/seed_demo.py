@@ -189,22 +189,21 @@ def seed():
             loc.expected_cash = LOCATION_CASH.get(loc.id, 8000.00)
         db.commit()
 
-        # ── 3. Ensure demo locations loc-2..5 have operators ─────────────────
-        extra_ops = [
-            {"email": "op2@compass.com", "name": "Jordan Lee",   "loc": "loc-2"},
-            {"email": "op3@compass.com", "name": "Maya Singh",   "loc": "loc-3"},
-            {"email": "op4@compass.com", "name": "Carlos Ruiz",  "loc": "loc-4"},
-            {"email": "op5@compass.com", "name": "Emma White",   "loc": "loc-5"},
+        # ── 3. Map to Real Users (@compass.com) ─────────────────────────────
+        # Generate the test data against the real accounts so it is viewable in the UI
+        demo_users = [
+            {"email": "operator@compassusa.com", "name": "Demo Operator", "role": UserRole.OPERATOR, "locs": ["loc-1"]},
+            {"email": "controller@compassusa.com", "name": "Demo Controller", "role": UserRole.CONTROLLER, "locs": ["loc-1", "loc-2"]},
+            {"email": "dgm@compassusa.com", "name": "Demo DGM", "role": UserRole.DGM, "locs": ["loc-1", "loc-2", "loc-3"]},
+            {"email": "rc@compassusa.com", "name": "Demo Regional Controller", "role": UserRole.REGIONAL_CONTROLLER, "locs": []},
+            {"email": "admin@compassusa.com", "name": "Demo Admin", "role": UserRole.ADMIN, "locs": []},
         ]
-        for o in extra_ops:
-            u = db.query(User).filter_by(email=o["email"]).first()
-            if not u:
-                u = User(id=uid(), email=o["email"], name=o["name"],
-                         role=UserRole.OPERATOR,
-                         hashed_password=hash_password(DEMO_PASS),
-                         location_ids=[o["loc"]], active=True)
-                db.add(u)
-                print(f"  + created {o['email']}")
+        
+        for du in demo_users:
+            if not db.query(User).filter_by(email=du["email"]).first():
+                db.add(User(id=uid(), email=du["email"], name=du["name"], role=du["role"],
+                            hashed_password=hash_password(DEMO_PASS), location_ids=du["locs"], active=True))
+                print(f"  + ensured demo test account exists {du['email']}")
         db.commit()
 
         # ── 4. Build operator→location index ─────────────────────────────────

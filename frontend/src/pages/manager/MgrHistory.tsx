@@ -4,6 +4,7 @@ import type { Submission } from '../../mock/data'
 import { listSubmissions } from '../../api/submissions'
 import type { ApiSubmission } from '../../api/types'
 import KpiCard from '../../components/KpiCard'
+import { getToken } from '../../api/client'
 
 function mapApiSub(s: ApiSubmission): Submission {
   return {
@@ -51,25 +52,38 @@ export default function MgrHistory({ managerName, locationIds, onNavigate }: Pro
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [dateRange,    setDateRange]    = useState<DateRange>('30d')
   const [apiSubs,      setApiSubs]      = useState<Submission[]>([])
+  const [isLoading,    setIsLoading]    = useState(!!getToken())
 
+  const locIdsJoined = locationIds.join(',')
   useEffect(() => {
+    if (!locIdsJoined) return
+    if (!getToken()) {
+      Promise.resolve().then(() => {
+        setApiSubs([])
+        setIsLoading(false)
+      })
+      return
+    }
+
+    Promise.resolve().then(() => setIsLoading(true))
     Promise.all(locationIds.map(id =>
       listSubmissions({ location_id: id, page_size: 100 })
         .then(r => r.items.map(mapApiSub))
         .catch(() => [] as Submission[])
-    )).then(arrays => setApiSubs(arrays.flat()))
-  }, [locationIds])
+    ))
+      .then(arrays => setApiSubs(arrays.flat()))
+      .finally(() => setIsLoading(false))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locIdsJoined])
 
   const cutoff = useMemo(() => {
-    // eslint-disable-next-line react-hooks/purity
     if (dateRange === '7d')  return Date.now() - 7  * 86400000
-    // eslint-disable-next-line react-hooks/purity
     if (dateRange === '30d') return Date.now() - 30 * 86400000
     return 0
   }, [dateRange])
 
   const sourceSubs = useMemo(() => {
-    const base = apiSubs.length > 0 ? apiSubs : SUBMISSIONS
+    const base = !getToken() ? SUBMISSIONS : apiSubs
     return base.map(s => {
       const loc = getLocation(s.locationId)
       const expCash = Number(s.expectedCash || (loc as unknown as Record<string, number>)?.expected_cash || (loc as unknown as Record<string, number>)?.expectedCash || IMPREST)
@@ -224,7 +238,13 @@ export default function MgrHistory({ managerName, locationIds, onNavigate }: Pro
           <span className="card-sub">{rows.length} {statusFilter === 'all' ? 'entries' : statusFilter} · {dateRangeLabel}</span>
         </div>
         <div className="card-body" style={{ padding: 0 }}>
-          {rows.length === 0 ? (
+          {isLoading ? (
+            <div style={{ padding: '64px 32px', textAlign: 'center' }}>
+              <div style={{ display: 'inline-block', width: 28, height: 28, border: '3px solid var(--ow2)', borderTopColor: 'var(--g4)', borderRadius: '50%', animation: 'spin 1s linear infinite', marginBottom: 16 }}></div>
+              <div style={{ fontWeight: 600, color: 'var(--ts)', fontSize: 14 }}>Loading history...</div>
+              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+            </div>
+          ) : rows.length === 0 ? (
             <div style={{ padding: '40px 32px', textAlign: 'center', color: 'var(--ts)', fontSize: 13 }}>
               No {statusFilter === 'all' ? 'actioned' : statusFilter} submissions found for {dateRangeLabel}.
             </div>

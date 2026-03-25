@@ -1,10 +1,12 @@
 import { useState, useMemo, useEffect, useRef, Fragment } from 'react'
-import { VERIFICATIONS, SUBMISSIONS, getLocation, formatCurrency, IMPREST, todayStr } from '../../mock/data'
+import { VERIFICATIONS, SUBMISSIONS, formatCurrency, IMPREST, todayStr } from '../../mock/data'
 import type { VerificationRecord } from '../../mock/data'
-import { listDgmVerifications, completeDgmVisit, missDgmVisit } from '../../api/verifications'
+import { listDgmVerifications, completeDgmVisit, missDgmVisit, cancelDgmVisit } from '../../api/verifications'
 import { listSubmissions } from '../../api/submissions'
+import { listLocations } from '../../api/locations'
 import type { ApiVerification } from '../../api/types'
 import KpiCard from '../../components/KpiCard'
+import { getToken } from '../../api/client'
 
 function mapApiVerification(v: ApiVerification): VerificationRecord {
   return {
@@ -157,25 +159,46 @@ export default function DGMDash({ dgmName, locationIds, ctx, onNavigate }: Props
   const [mNotes,  setMNotes]  = useState('')
   const [mErrors, setMErrors] = useState<Record<string, string>>({})
 
-  // Session updates — NOT persisted to sessionStorage (fresh API fetch on every mount)
-  const [sessionUpdates, setSessionUpdates] = useState<Record<string, SessionUpdate>>({})
+  // Session updates persist locally for Demo Mode and Optimistic UI
+  const [sessionUpdates, setSessionUpdates] = useState<Record<string, SessionUpdate>>(() => {
+    try {
+      return JSON.parse(sessionStorage.getItem('dgm_session_updates') || '{}')
+    } catch {
+      return {}
+    }
+  })
 
-  // Clear any stale legacy key
-  useEffect(() => { sessionStorage.removeItem('dgm_session_updates') }, [])
+  useEffect(() => {
+    sessionStorage.setItem('dgm_session_updates', JSON.stringify(sessionUpdates))
+  }, [sessionUpdates])
 
+  const [isLoading, setIsLoading] = useState(!!getToken())
   const [apiVerifs, setApiVerifs] = useState<VerificationRecord[]>([])
   const [apiSubsMap, setApiSubsMap] = useState<Record<string, { status: string; id: string; totalCash: number }>>({})
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [locs, setLocs] = useState<any[]>(() => !getToken() ? locationIds : [])
 
   const locIdsJoined = locationIds.join(',')
   useEffect(() => {
+    if (!getToken()) {
+      Promise.resolve().then(() => {
+        setApiVerifs([])
+        setApiSubsMap({})
+        setIsLoading(false)
+      })
+      return
+    }
+
+    Promise.resolve().then(() => setIsLoading(true))
+    
     // 1. Fetch Verifications
-    listDgmVerifications({ page_size: 100 })
+    const p1 = listDgmVerifications({ page_size: 100 })
       .then(r => setApiVerifs(r.items.map(mapApiVerification).filter(v => locationIds.includes(v.locationId))))
-      .catch(() => { /* fall back to mock */ })
+      .catch(() => console.error('Failed to load real verifications'))
 
     // 2. Fetch Submissions to check approval status + get IDs for navigation
-    if (locationIds.length > 0) {
-      Promise.all(locationIds.map(id => listSubmissions({ location_id: id, page_size: 100 }).then(r => r.items)))
+    const p2 = locationIds.length > 0
+      ? Promise.all(locationIds.map(id => listSubmissions({ location_id: id, page_size: 100 }).then(r => r.items)))
         .then(arrays => {
           const map: Record<string, { status: string; id: string; totalCash: number }> = {}
           arrays.flat().forEach(s => {
@@ -183,18 +206,28 @@ export default function DGMDash({ dgmName, locationIds, ctx, onNavigate }: Props
           })
           setApiSubsMap(map)
         })
-        .catch(() => { /* fall back to mock */ })
-    }
+        .catch(() => console.error('Failed to load real submissions'))
+      : Promise.resolve()
+
+    // 3. Fetch Real Locations
+    const p3 = listLocations()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .then((res: any) => setLocs(Array.isArray(res) ? res : (res.items || [])))
+      .catch(() => console.warn('Failed to fetch real locations'))
+
+    Promise.all([p1, p2, p3]).finally(() => setIsLoading(false))
   }, [locationIds, locIdsJoined])
 
   function getSubStatus(locId: string, date: string): string | null {
     const key = `${locId}_${date}`
     if (apiSubsMap[key]) return apiSubsMap[key].status
-    const mockSub = SUBMISSIONS.find(s => s.locationId === locId && s.date === date)
-    if (mockSub) {
-      const override = sessionStorage.getItem(`op_status_${mockSub.id}`) || sessionStorage.getItem(`op_status_${locId}_${date}`)
-      if (override) return override
-      return mockSub.status
+    if (!getToken()) {
+      const mockSub = SUBMISSIONS.find(s => s.locationId === locId && s.date === date)
+      if (mockSub) {
+        const override = sessionStorage.getItem(`op_status_${mockSub.id}`) || sessionStorage.getItem(`op_status_${locId}_${date}`)
+        if (override) return override
+        return mockSub.status
+      }
     }
     return null
   }
@@ -202,13 +235,15 @@ export default function DGMDash({ dgmName, locationIds, ctx, onNavigate }: Props
   function getSubId(locId: string, date: string): string | undefined {
     const key = `${locId}_${date}`
     if (apiSubsMap[key]) return apiSubsMap[key].id
-    return SUBMISSIONS.find(s => s.locationId === locId && s.date === date)?.id
+    if (!getToken()) return SUBMISSIONS.find(s => s.locationId === locId && s.date === date)?.id
+    return undefined
   }
 
   function getSubTotalCash(locId: string, date: string): number | null {
     const key = `${locId}_${date}`
     if (apiSubsMap[key]) return apiSubsMap[key].totalCash
-    return SUBMISSIONS.find(s => s.locationId === locId && s.date === date)?.totalCash ?? null
+    if (!getToken()) return SUBMISSIONS.find(s => s.locationId === locId && s.date === date)?.totalCash ?? null
+    return null
   }
 
   function closeExpand() {
@@ -224,7 +259,7 @@ export default function DGMDash({ dgmName, locationIds, ctx, onNavigate }: Props
     setExpandAction(action)
   }
 
-  const sourceVerifs = apiVerifs.length > 0 ? apiVerifs : VERIFICATIONS.filter(v => v.type === 'dgm' && locationIds.includes(v.locationId))
+  const sourceVerifs = !getToken() ? VERIFICATIONS.filter(v => v.type === 'dgm' && locationIds.includes(v.locationId)) : apiVerifs
 
   // ── All DGM visits merged with session overrides & overdue logic ───────
   const allRecords = useMemo<DashRecord[]>(() =>
@@ -335,9 +370,11 @@ export default function DGMDash({ dgmName, locationIds, ctx, onNavigate }: Props
     // Fallback to 0 since observed cash is tracked via the submission form itself now
     const obs = 0 
 
-    try {
-      await completeDgmVisit(id, { observed_total: obs, signature_data: cSig, notes: cNotes.trim() || undefined })
-    } catch { /* demo mode */ }
+    if (getToken()) {
+      try {
+        await completeDgmVisit(id, { observed_total: obs, signature_data: cSig, notes: cNotes.trim() || undefined })
+      } catch (err) { console.error('Failed to complete visit', err) }
+    }
     setSessionUpdates(prev => ({ ...prev, [id]: { status: 'completed', observedTotal: obs, notes: cNotes.trim() } }))
     closeExpand()
   }
@@ -346,17 +383,28 @@ export default function DGMDash({ dgmName, locationIds, ctx, onNavigate }: Props
     const e: Record<string, string> = {}
     if (!mReason) e.reason = 'Please select a reason.'
     if (Object.keys(e).length) { setMErrors(e); return }
-    try {
-      await missDgmVisit(id, { missed_reason: mReason, notes: mNotes.trim() || undefined })
-    } catch { /* demo mode */ }
+    if (getToken()) {
+      try {
+        await missDgmVisit(id, { missed_reason: mReason, notes: mNotes.trim() || undefined })
+      } catch (err) { console.error('Failed to mark visit as missed', err) }
+    }
     setSessionUpdates(prev => ({ ...prev, [id]: { status: 'missed', missedReason: mReason, notes: mNotes.trim() } }))
     closeExpand()
   }
 
-  async function handleCancel(id: string) {
-    if (!confirm('Are you sure you want to cancel this scheduled visit?')) return
-    // Demo mode: Mark as cancelled in local session
-    setSessionUpdates(prev => ({ ...prev, [id]: { status: 'cancelled' } }))
+  const [cancelId, setCancelId] = useState<string | null>(null)
+
+  async function handleConfirmCancel() {
+    if (!cancelId) return
+    if (getToken()) {
+      try {
+        await cancelDgmVisit(cancelId)
+      } catch (err) {
+        console.error('Failed to cancel visit', err)
+      }
+    }
+    setSessionUpdates(prev => ({ ...prev, [cancelId]: { status: 'cancelled' } }))
+    setCancelId(null)
     closeExpand()
   }
 
@@ -370,7 +418,7 @@ export default function DGMDash({ dgmName, locationIds, ctx, onNavigate }: Props
           <p style={{ color: 'var(--ts)', fontSize: 13 }}>
             Visit schedule across {locationIds.length} {locationIds.length === 1 ? 'location' : 'locations'}
             {locationIds.length === 1
-              ? ` · ${getLocation(locationIds[0])?.name ?? locationIds[0]}`
+              ? ` · ${locs.find(l => l.id === locationIds[0])?.name ?? locationIds[0]}`
               : ` · ${dgmName}`
             }
           </p>
@@ -472,7 +520,7 @@ export default function DGMDash({ dgmName, locationIds, ctx, onNavigate }: Props
         >
           <option value="all">📍 All Locations ({locationIds.length})</option>
           {locationIds.map(id => {
-            const loc = getLocation(id)
+            const loc = locs.find(l => l.id === id)
             const cc = (loc as unknown as { costCenter?: string; cost_center?: string })?.costCenter || (loc as unknown as { costCenter?: string; cost_center?: string })?.cost_center || 'N/A'
             return <option key={id} value={id}>{loc?.name ?? id} (CC: {cc})</option>
           })}
@@ -486,12 +534,17 @@ export default function DGMDash({ dgmName, locationIds, ctx, onNavigate }: Props
           <span className="card-sub">
             {dashRows.length} record{dashRows.length !== 1 ? 's' : ''}
             {statusFilter   !== 'all' ? ` · ${statusFilter}` : ''}
-            {locationFilter !== 'all' ? ` · ${getLocation(locationFilter)?.name ?? locationFilter}` : ''}
+            {locationFilter !== 'all' ? ` · ${locs.find(l => l.id === locationFilter)?.name ?? locationFilter}` : ''}
             {dashRows.length > PAGE_SIZE ? ` · page ${page + 1} of ${totalPages}` : ''}
           </span>
         </div>
         <div className="card-body" style={{ padding: 0 }}>
-          {dashRows.length === 0 ? (
+          {isLoading ? (
+            <div style={{ padding: '64px 32px', textAlign: 'center' }}>
+              <div style={{ display: 'inline-block', width: 28, height: 28, border: '3px solid var(--ow2)', borderTopColor: 'var(--g4)', borderRadius: '50%', animation: 'spin 1s linear infinite', marginBottom: 16 }}></div>
+              <div style={{ fontWeight: 600, color: 'var(--ts)', fontSize: 14 }}>Loading your dashboard...</div>
+            </div>
+          ) : dashRows.length === 0 ? (
             <div style={{ padding: '48px 32px', textAlign: 'center' }}>
               <div style={{ fontSize: 36, marginBottom: 10 }}>📋</div>
               <div style={{ fontWeight: 600, marginBottom: 6 }}>No records found</div>
@@ -517,7 +570,7 @@ export default function DGMDash({ dgmName, locationIds, ctx, onNavigate }: Props
               </thead>
               <tbody>
                 {pageRows.map(v => {
-                  const loc        = getLocation(v.locationId)
+                  const loc        = locs.find(l => l.id === v.locationId)
                   const isFuture   = v.date > today
                   const isExpanded = expandedId === v.id
                   const expCash    = Number((loc as unknown as Record<string, number>)?.expected_cash || (loc as unknown as Record<string, number>)?.expectedCash || IMPREST)
@@ -592,7 +645,7 @@ export default function DGMDash({ dgmName, locationIds, ctx, onNavigate }: Props
                             <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
                               <button className="btn btn-primary" style={{ fontSize: 11, padding: '4px 12px' }} onClick={() => openExpand(v.id, 'complete')}>Mark as Completed</button>
                               <button className="btn btn-ghost" style={{ fontSize: 11, padding: '4px 12px', color: 'var(--red)' }} onClick={() => openExpand(v.id, 'miss')}>Mark as Missed</button>
-                              <button className="btn btn-ghost" style={{ fontSize: 11, padding: '4px 12px', color: 'var(--ts)' }} onClick={() => handleCancel(v.id)}>⊘ Cancel</button>
+                              <button className="btn btn-ghost" style={{ fontSize: 11, padding: '4px 12px', color: 'var(--ts)' }} onClick={() => setCancelId(v.id)}>⊘ Cancel</button>
                             </div>
                           ) : (
                             <span style={{ fontSize: 11, color: 'var(--wg)' }}>—</span>
@@ -832,11 +885,31 @@ export default function DGMDash({ dgmName, locationIds, ctx, onNavigate }: Props
                   : <button key={n} onClick={() => setPage(n as number)} style={{ width: 30, height: 30, borderRadius: 6, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', fontWeight: page === n ? 700 : 400, border: `1px solid ${page === n ? 'var(--g4)' : 'var(--ow2)'}`, background: page === n ? 'var(--g7)' : '#fff', color: page === n ? '#fff' : 'var(--tm)' }}>{(n as number) + 1}</button>
                 )}
                 <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 12px' }} disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>Next →</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Custom Cancellation Modal */}
+        {cancelId && (
+          <div style={{
+            position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(2px)'
+          }}>
+            <div className="card fade-up" style={{ width: 400, maxWidth: '90vw', padding: '24px', margin: 0, boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)' }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--td)', marginBottom: 12 }}>Cancel Visit</div>
+              <div style={{ fontSize: 14, color: 'var(--ts)', marginBottom: 24, lineHeight: 1.5 }}>
+                Are you sure you want to cancel this scheduled visit?
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+                <button className="btn btn-ghost" style={{ fontSize: 13 }} onClick={() => setCancelId(null)}>Cancel</button>
+                <button className="btn" style={{ background: 'var(--red)', color: '#fff', border: 'none', fontSize: 13, padding: '8px 16px', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }} onClick={handleConfirmCancel}>Yes, Cancel</button>
               </div>
             </div>
-          )}
-        </div>
+          </div>
+        )}
+
       </div>
-    </div>
-  )
-}
+    )
+  }

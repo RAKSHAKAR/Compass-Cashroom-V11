@@ -20,7 +20,7 @@ function apiRoleToRole(apiRole: ApiRole): Role {
 }
 
 interface LoginProps {
-  onLogin: (userId: string, role: Role, name: string, locationIds: string[]) => void
+  onLogin: (userId: string, role: Role, name: string, locationIds: string[], isOffline: boolean) => void
 }
 
 const DEMO_PASSWORD = 'demo1234'
@@ -53,23 +53,41 @@ export default function Login({ onLogin }: LoginProps) {
     setLoading(true)
     setError('')
 
+    const userEmail = email.trim().toLowerCase()
+    const DEMO_EMAILS = [
+      'admin@compassusa.com', 
+      'operator@compassusa.com', 
+      'controller@compassusa.com', 
+      'dgm@compassusa.com', 
+      'rc@compassusa.com'
+    ]
+
+    const isDemoAccount = DEMO_EMAILS.includes(userEmail)
+
+    if (isDemoAccount) {
+      if (password !== DEMO_PASSWORD) { setError('Incorrect password.'); setLoading(false); return }
+      const user = USERS.find(u => u.email.toLowerCase() === userEmail)
+      if (!user) { setError('No account found for this email address.'); setLoading(false); return }
+      onLogin(user.id, user.role as Role, user.name, user.locationIds, true)
+      setLoading(false)
+      return
+    }
+
     try {
-      // Try real API first
+      // Real account — Try real API strictly
       const res = await apiLogin(email.trim(), password)
       const role = apiRoleToRole(res.user.role)
-      onLogin(res.user.id, role, res.user.name, res.user.location_ids)
+      onLogin(res.user.id, role, res.user.name, res.user.location_ids, false)
     } catch (err) {
-      // If the API responded (4xx/5xx), show the real error — do NOT fall back to mock
-      if (err instanceof ApiError) {
+      const isNetworkError = err instanceof TypeError || (err as Error).message === 'Failed to fetch' || (err as Error).message === 'Network Error' || (err instanceof ApiError && err.status === 0);
+      
+      if (isNetworkError) {
+        setError('⚠️ Could not reach the server. Make sure the backend is running on port 8000.')
+      } else if (err instanceof ApiError) {
         setError(err.status === 401 ? 'Incorrect email or password.' : err.message || 'Login failed.')
-        setLoading(false)
-        return
+      } else {
+        setError('No account found for this email address.')
       }
-      // API unreachable — fall back to mock data for demo/development
-      const user = USERS.find(u => u.email.toLowerCase() === email.trim().toLowerCase())
-      if (!user) { setError('No account found for this email address.'); setLoading(false); return }
-      if (password !== DEMO_PASSWORD) { setError('Incorrect password.'); setLoading(false); return }
-      onLogin(user.id, user.role as Role, user.name, user.locationIds)
     } finally {
       setLoading(false)
     }
@@ -80,6 +98,19 @@ export default function Login({ onLogin }: LoginProps) {
     if (!fpEmail.trim()) { setFpError('Please enter your email address.'); return }
     setFpLoading(true)
     setFpError('')
+
+    const DEMO_EMAILS = [
+      'admin@compassusa.com', 'operator@compassusa.com', 
+      'controller@compassusa.com', 'dgm@compassusa.com', 'rc@compassusa.com'
+    ]
+    if (DEMO_EMAILS.includes(fpEmail.trim().toLowerCase())) {
+      setTimeout(() => {
+        setFpError('Password reset is not available in demo mode.')
+        setFpLoading(false)
+      }, 400)
+      return
+    }
+
     try {
       await forgotPassword(fpEmail.trim())
       setView('otp')
@@ -222,11 +253,11 @@ export default function Login({ onLogin }: LoginProps) {
               {showHints && (
                 <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 4 }}>
                   {[
-                    { email: 'admin@compass.com', role: 'Admin' },
-                    { email: 'operator@compass.com', role: 'Operator' },
-                    { email: 'controller@compass.com', role: 'Controller' },
-                    { email: 'dgm@compass.com', role: 'DGM' },
-                    { email: 'rc@compass.com', role: 'Regional Controller' },
+                    { email: 'admin@compassusa.com', role: 'Admin' },
+                    { email: 'operator@compassusa.com', role: 'Operator' },
+                    { email: 'controller@compassusa.com', role: 'Controller' },
+                    { email: 'dgm@compassusa.com', role: 'DGM' },
+                    { email: 'rc@compassusa.com', role: 'Regional Controller' },
                   ].map(h => (
                     <button
                       key={h.email}
@@ -253,7 +284,7 @@ export default function Login({ onLogin }: LoginProps) {
                     </button>
                   ))}
                   <p style={{ fontSize: 11, color: 'var(--ts)', textAlign: 'center', margin: '6px 0 0' }}>
-                    All accounts use password: <strong>demo1234</strong>
+                    Password for all demo accounts are: <strong>demo1234</strong>
                   </p>
                 </div>
               )}

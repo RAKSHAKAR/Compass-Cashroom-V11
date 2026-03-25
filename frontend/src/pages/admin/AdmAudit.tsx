@@ -2,8 +2,11 @@ import { useState, useMemo, useEffect, useRef } from 'react'
 import { AUDIT_EVENTS, LOCATIONS, todayStr } from '../../mock/data'
 import type { AuditEvent } from '../../mock/data'
 import { listAuditEvents } from '../../api/audit'
+import { listLocations } from '../../api/admin'
+import { getToken } from '../../api/client'
 import type { ApiAuditEvent } from '../../api/types'
 import * as XLSX from 'xlsx'
+
 
 interface Props { adminName: string }
 
@@ -125,29 +128,43 @@ export default function AdmAudit({ adminName }: Props) {
   const [customFrom,  setCustomFrom]  = useState('')
   const [customTo,    setCustomTo]    = useState(todayStr())
   const [page, setPage] = useState(0)
-
-  const [apiEvents, setApiEvents] = useState<AuditEvent[]>([])
-  const [fetchError, setFetchError] = useState('')
   const [isExporting, setIsExporting] = useState(false)
   const [showExportMenu, setShowExportMenu] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
+  const [apiEvents, setApiEvents] = useState<AuditEvent[]>([])
+  const [isLoading, setIsLoading] = useState(!!getToken())
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [locs, setLocs] = useState<any[]>(() => !getToken() ? LOCATIONS : [])
 
   useEffect(() => {
-    setFetchError('')
-    listAuditEvents({ page_size: 5000 })
-      .then(r => setApiEvents(r.items.map(mapApiAuditEvent)))
-      .catch((err) => {
-        const error = err instanceof Error ? err : new Error(String(err));
-        const isNetworkError = error instanceof TypeError || error.message === 'Failed to fetch' || error.message === 'Network Error';
-        if (isNetworkError) {
-          setFetchError('Could not reach the server. Make sure the backend is running on port 8000.')
-        } else {
-          setFetchError(error.message || 'Failed to load audit events.')
-        }
+    if (!getToken()) {
+      Promise.resolve().then(() => {
+        setApiEvents([])
+        setIsLoading(false)
       })
+      return
+    }
+
+    Promise.resolve().then(() => setIsLoading(true))
+
+    // 1. Fetch Audit Events
+    const p1 = listAuditEvents({ page_size: 5000 })
+      .then(r => setApiEvents(r.items.map(mapApiAuditEvent)))
+      .catch((err) => console.error('Failed to load audit events:', err))
+
+    // 2. Fetch Real Locations from Backend API
+    const p2 = listLocations()
+      .then(res => {
+        // Handle variations in API response wrappers
+        const fetchedLocs = Array.isArray(res) ? res : (res.items || [])
+        setLocs(fetchedLocs)
+      })
+      .catch(() => console.warn('Failed to fetch real locations'))
+
+    Promise.all([p1, p2]).finally(() => setIsLoading(false))
   }, [])
 
-  const sourceEvents = apiEvents.length > 0 ? apiEvents : AUDIT_EVENTS
+  const sourceEvents = !getToken() ? AUDIT_EVENTS : apiEvents
 
   // Event types: static from known EVENT_LABELS (don't derive from data)
   const EVENT_TYPES = Object.keys(EVENT_LABELS).sort((a, b) =>
@@ -178,8 +195,8 @@ export default function AdmAudit({ adminName }: Props) {
         )
         .map(e => e.locationId!)
     )
-    return LOCATIONS.filter(l => locIds.has(l.id))
-  }, [filterType, filterActor, sourceEvents])
+    return locs.filter(l => locIds.has(l.id))
+  }, [filterType, filterActor, sourceEvents, locs])
 
   // Auto-reset actor if it no longer appears in the narrowed actor list
   useEffect(() => {
@@ -219,7 +236,7 @@ export default function AdmAudit({ adminName }: Props) {
   }
 
   const getExportData = () => filtered.map(ev => {
-    const loc = LOCATIONS.find(l => l.id === ev.locationId)
+    const loc = locs.find(l => l.id === ev.locationId)
     const ts = new Date(ev.timestamp)
     return {
       Timestamp: `${ts.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} ${ts.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`,
@@ -312,16 +329,6 @@ export default function AdmAudit({ adminName }: Props) {
         </div>
       </div>
 
-      {fetchError && (
-        <div style={{
-          background: '#fff5f5', border: '1px solid #fca5a5', borderRadius: 8,
-          padding: '10px 14px', fontSize: 12, color: 'var(--red)', marginBottom: 18,
-          display: 'flex', alignItems: 'center', gap: 8
-        }}>
-          <span>⚠️</span> {fetchError} (Showing mock data)
-        </div>
-      )}
-
       <div className="card">
         {/* Filters – row 1: dropdowns */}
         <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',padding:'12px 20px',borderBottom:'1px solid var(--ow2)',background:'var(--ow)'}}>
@@ -394,7 +401,13 @@ export default function AdmAudit({ adminName }: Props) {
         </div>
 
         <div className="card-body" style={{padding:0}}>
-          {filtered.length===0 ? (
+          {isLoading ? (
+            <div style={{ padding: '64px 32px', textAlign: 'center' }}>
+              <div style={{ display: 'inline-block', width: 28, height: 28, border: '3px solid var(--ow2)', borderTopColor: 'var(--g4)', borderRadius: '50%', animation: 'spin 1s linear infinite', marginBottom: 16 }}></div>
+              <div style={{ fontWeight: 600, color: 'var(--ts)', fontSize: 14 }}>Loading audit log...</div>
+              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+            </div>
+          ) : filtered.length===0 ? (
             <div style={{padding:'48px 32px',textAlign:'center'}}>
               <div style={{fontSize:36,marginBottom:10}}>🔍</div>
               <div style={{fontWeight:600,color:'var(--td)'}}>No events match filters</div>
@@ -414,7 +427,7 @@ export default function AdmAudit({ adminName }: Props) {
                 </thead>
                 <tbody>
                   {pageRows.map(ev => {
-                    const loc = LOCATIONS.find(l=>l.id===ev.locationId)
+                    const loc = locs.find(l=>l.id===ev.locationId)
                     const ts  = new Date(ev.timestamp)
                     return (
                       <tr key={ev.id}>

@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react'
 import * as XLSX from 'xlsx'
 import { importRoster, listLocations, listUsers, resetAll } from '../../api/admin'
+import { getToken } from '../../api/client'
 import type { ImportRow as ApiImportRow } from '../../api/types'
 import { LOCATIONS, USERS, saveStored } from '../../mock/data'
 import type { Location, User } from '../../mock/data'
@@ -275,6 +276,17 @@ export default function AdmImport({ adminName }: Props) {
 
   async function handleReset() {
     setResetting(true)
+    if (!getToken()) {
+      setTimeout(() => {
+        const uLen = USERS.length; const lLen = LOCATIONS.length;
+        USERS.splice(0, USERS.length); LOCATIONS.splice(0, LOCATIONS.length);
+        saveStored('compass_users', USERS); saveStored('compass_locations', LOCATIONS);
+        setRows([]); setFileName(''); setImported(false); setImportResult(null); setResetConfirm(false);
+        setResetMsg(`Reset complete — ${uLen} users and ${lLen} locations removed. Ready for new import.`);
+        setResetting(false);
+      }, 400);
+      return;
+    }
     try {
       const res = await resetAll()
       USERS.splice(0, USERS.length)
@@ -324,7 +336,8 @@ export default function AdmImport({ adminName }: Props) {
             Upload a Cashroom roster Excel to preview roles and location assignments · {adminName}
           </p>
         </div>
-        <div className="ph-right">
+
+        <div className="ph-right" style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
           <button
             className="btn btn-ghost"
             style={{ fontSize: 12, color: '#b45309', border: '1px solid #f59e0b', background: '#fffbeb' }}
@@ -332,67 +345,93 @@ export default function AdmImport({ adminName }: Props) {
           >
             ↺ Reset (Users + Locations)
           </button>
-        </div>
 
-        {rows.length > 0 && !imported && (
-          <div className="ph-right">
+          {rows.length > 0 && !imported && (
             <button
               className="btn btn-primary"
               disabled={importing}
-              onClick={async () => {
-                setImporting(true)
-                setImportError('')
-                try {
-                  const apiRows: ApiImportRow[] = rows.map(r => ({
-                    location_code: r.cc,
-                    location_name: r.district || r.cc,
-                    district: r.district || undefined,
-                    cashroom_lead: r.cashroomLead || undefined,
-                    cashroom_lead_email: r.cashroomLeadEmail || undefined,
-                    controller: r.controller || undefined,
-                    controller_email: r.controllerEmail || undefined,
-                    dgm: r.dgm || undefined,
-                    dgm_email: r.dgmEmail || undefined,
-                    regional_controller: r.regionalController || undefined,
-                    regional_controller_email: r.regionalControllerEmail || undefined,
-                    division_contacts: r.divisionContact || undefined,
-                    division_contacts_email: r.divisionContactEmail || undefined,
-                  }))
-                  const result = await importRoster(apiRows)
-                  setImportResult({ locations_created: result.locations_created, users_created: result.users_created, skipped_duplicates: result.skipped_duplicates })
-                  // Sync in-memory arrays so current session sees new data immediately
-                  listLocations().then(r => {
-                    LOCATIONS.length = 0
-                    r.items.forEach(l => LOCATIONS.push({
-                      id: l.id, name: l.name, city: l.city,
-                      expectedCash: l.expected_cash,
-                      tolerancePct: l.effective_tolerance_pct,
-                      active: l.active,
-                    } as Location))
-                    saveStored('compass_locations', LOCATIONS)
-                  }).catch(() => {})
-                  listUsers({ page_size: 100 }).then(r => {
-                    USERS.length = 0
-                    r.items.forEach(u => USERS.push({
-                      id: u.id, name: u.name, email: u.email,
-                      role: u.role.toLowerCase() as User['role'],
-                      locationIds: u.location_ids ?? [],
-                      active: u.active,
+                onClick={async () => {
+                  setImporting(true)
+                  setImportError('')
+                  
+                  if (!getToken()) {
+                    // Mock Import Logic: Safely construct entities in local browser state
+                    setTimeout(() => {
+                      let lCount = 0; let uCount = 0;
+                      rows.forEach(r => {
+                        if (r.district && !LOCATIONS.find(l => l.name === r.district)) {
+                          LOCATIONS.push({ id: r.cc || `loc-${Date.now()}-${Math.random()}`, name: r.district, city: '', expectedCash: 500, tolerancePct: 5, active: true });
+                          lCount++;
+                        }
+                        const addU = (name: string, email: string, role: string) => {
+                          if (name && !USERS.find(u => u.email === (email || name))) {
+                            USERS.push({ id: `U-${Date.now()}-${Math.random()}`, name, email: email || `${name.replace(/\s+/g,'')}@mock.com`, role: role as "operator" | "controller" | "dgm" | "regional-controller", locationIds: [r.cc], active: true });
+                            uCount++;
+                          }
+                        }
+                        addU(r.cashroomLead, r.cashroomLeadEmail, 'operator');
+                        addU(r.controller, r.controllerEmail, 'controller');
+                        addU(r.dgm, r.dgmEmail, 'dgm');
+                        addU(r.regionalController, r.regionalControllerEmail, 'regional-controller');
+                      })
+                      saveStored('compass_locations', LOCATIONS); saveStored('compass_users', USERS);
+                      setImportResult({ locations_created: lCount, users_created: uCount, skipped_duplicates: 0 });
+                      setImported(true); setImporting(false);
+                    }, 500);
+                    return;
+                  }
+
+                  try {
+                    const apiRows: ApiImportRow[] = rows.map(r => ({
+                      location_code: r.cc,
+                      location_name: r.district || r.cc,
+                      district: r.district || undefined,
+                      cashroom_lead: r.cashroomLead || undefined,
+                      cashroom_lead_email: r.cashroomLeadEmail || undefined,
+                      controller: r.controller || undefined,
+                      controller_email: r.controllerEmail || undefined,
+                      dgm: r.dgm || undefined,
+                      dgm_email: r.dgmEmail || undefined,
+                      regional_controller: r.regionalController || undefined,
+                      regional_controller_email: r.regionalControllerEmail || undefined,
+                      division_contacts: r.divisionContact || undefined,
+                      division_contacts_email: r.divisionContactEmail || undefined,
                     }))
-                    saveStored('compass_users', USERS)
-                  }).catch(() => {})
-                  setImported(true)
-                } catch (err: unknown) {
-                  setImportError(err instanceof Error ? err.message : 'Import failed. Make sure the backend is running.')
-                } finally {
-                  setImporting(false)
-                }
-              }}
-            >
-              {importing ? 'Importing…' : `✓ Confirm Import (${rows.length} rows)`}
-            </button>
-          </div>
-        )}
+                    const result = await importRoster(apiRows)
+                    setImportResult({ locations_created: result.locations_created, users_created: result.users_created, skipped_duplicates: result.skipped_duplicates })
+                    // Sync in-memory arrays so current session sees new data immediately
+                    listLocations().then(r => {
+                      LOCATIONS.length = 0
+                      r.items.forEach(l => LOCATIONS.push({
+                        id: l.id, name: l.name, city: l.city,
+                        expectedCash: l.expected_cash,
+                        tolerancePct: l.effective_tolerance_pct,
+                        active: l.active,
+                      } as Location))
+                      saveStored('compass_locations', LOCATIONS)
+                    }).catch(() => {})
+                    listUsers({ page_size: 100 }).then(r => {
+                      USERS.length = 0
+                      r.items.forEach(u => USERS.push({
+                        id: u.id, name: u.name, email: u.email,
+                        role: u.role.toLowerCase() as User['role'],
+                        locationIds: u.location_ids ?? [],
+                        active: u.active,
+                      }))
+                      saveStored('compass_users', USERS)
+                    }).catch(() => {})
+                    setImported(true)
+                  } catch (err: unknown) {
+                    setImportError(err instanceof Error ? err.message : 'Import failed. Make sure the backend is running.')
+                  } finally {
+                    setImporting(false)
+                  }
+                }}
+              >
+                {importing ? 'Importing…' : `✓ Confirm Import (${rows.length} rows)`}
+              </button>
+          )}
+        </div>
       </div>
 
       {/* ── Reset confirmation banner ── */}

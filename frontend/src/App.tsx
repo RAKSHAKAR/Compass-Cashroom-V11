@@ -8,7 +8,7 @@ import type { ApiRole, AuthUser } from './api/types'
 import { writeGrants } from './utils/operatorAccess'
 import { listLocations } from './api/locations'
 import { listUsers } from './api/admin'
-import { LOCATIONS, USERS, saveStored } from './mock/data'
+import { USERS } from './mock/data'
 
 function apiRoleToRole(apiRole: ApiRole): Role {
   const map: Partial<Record<ApiRole, Role>> = {
@@ -47,7 +47,7 @@ import AdmImport      from './pages/admin/AdmImport'
 import RcTrends       from './pages/regional-controller/RcTrends'
 import './index.css'
 
-interface AuthState { userId: string; role: Role; name: string; locationIds: string[] }
+interface AuthState { userId: string; role: Role; name: string; locationIds: string[]; isOffline: boolean }
 interface NavCtx   { panel: string; ctx: Record<string, string> }
 
 // ── Role-based nav items ───────────────────────────────────────────────────
@@ -173,6 +173,17 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
     if (newPw.length < 8) { setError('New password must be at least 8 characters.'); return }
     if (newPw !== confirmPw) { setError('Passwords do not match.'); return }
     setLoading(true)
+
+    if (!getToken()) {
+      // Demo Mode Bypass
+      setTimeout(() => {
+        setSuccess('Password changed successfully! (Demo Mode)')
+        setLoading(false)
+        setTimeout(onClose, 1500)
+      }, 500)
+      return
+    }
+
     try {
       await changePassword(currentPw, newPw)
       setSuccess('Password changed successfully!')
@@ -234,6 +245,24 @@ function AppShell({ auth, onLogout }: { auth: AuthState; onLogout: () => void })
   const defaultPanel = items[0]?.panel ?? 'op-start'
   const [nav, setNav] = useState<NavCtx>({ panel: defaultPanel, ctx: {} })
   const [showChangePw, setShowChangePw] = useState(false)
+  const [isBackendDown, setIsBackendDown] = useState(auth.isOffline)
+
+  useEffect(() => {
+    if (auth.isOffline) return; // Demo accounts stay offline permanently
+    
+    const checkHealth = async () => {
+      try {
+        await listLocations()
+        setIsBackendDown(false)
+      } catch (err) {
+        const isNetworkError = err instanceof TypeError || (err as Error).message === 'Failed to fetch' || (err as Error).message === 'Network Error';
+        if (isNetworkError) setIsBackendDown(true)
+      }
+    }
+    
+    const interval = setInterval(checkHealth, 15000)
+    return () => clearInterval(interval)
+  }, [auth.isOffline])
 
   const initials = auth.name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
 
@@ -352,6 +381,16 @@ function AppShell({ auth, onLogout }: { auth: AuthState; onLogout: () => void })
       {/* ── Main area ── */}
       <div className="main-area" style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
         
+        {isBackendDown && (
+          <div style={{
+            background: '#fff5f5', borderBottom: '1px solid #fca5a5', padding: '10px 32px',
+            fontSize: 13, color: 'var(--red)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+            flexShrink: 0, fontWeight: 500
+          }}>
+            <span>⚠️</span> Could not reach the server. Make sure the backend is running on port 8000. {auth.isOffline ? '(Running locally)' : ''}
+          </div>
+        )}
+
         {/* ── Global Top Bar ── */}
         <div style={{
           display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
@@ -412,9 +451,9 @@ export default function App() {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   function syncLocations() {
+    if (!getToken()) return; // Demo users skip backend sync entirely
     listLocations().then(apiLocs => {
-      LOCATIONS.length = 0
-      apiLocs.forEach(l => LOCATIONS.push({
+      const mapped = apiLocs.map(l => ({
         id: l.id, name: l.name, cost_center: l.cost_center, city: l.city,
         expectedCash: l.expected_cash,
         tolerancePct: l.effective_tolerance_pct,
@@ -424,22 +463,22 @@ export default function App() {
         createdAt: l.created_at,
         updatedAt: l.updated_at,
       }))
-      saveStored('compass_locations', LOCATIONS)
-    }).catch(() => { /* use whatever is in localStorage */ })
+      sessionStorage.setItem('compass_real_locations', JSON.stringify(mapped))
+    }).catch(() => { })
   }
 
   function syncUsers() {
+    if (!getToken()) return; // Demo users skip backend sync entirely
     // Lowered page_size to 100 to satisfy strict backend validation limits
     listUsers({ page_size: 100 }).then(r => {
-      USERS.length = 0
-      r.items.forEach(u => USERS.push({
+      const mapped = r.items.map(u => ({
         id: u.id, name: u.name, email: u.email,
         role: u.role.toLowerCase() as (typeof USERS)[0]['role'],
         locationIds: u.location_ids ?? [],
         active: u.active,
       }))
-      saveStored('compass_users', USERS)
-    }).catch(() => { /* keep whatever is in localStorage */ })
+      sessionStorage.setItem('compass_real_users', JSON.stringify(mapped))
+    }).catch(() => { })
   }
 
   function syncGrants(user: AuthUser) {
@@ -469,14 +508,15 @@ export default function App() {
           syncUsers()
         }
         setAuth({
-        userId: user.id,
-        role: appRole,
-        name: user.name,
-        locationIds: user.location_ids,
-      })
+            userId: user.id,
+            role: appRole,
+            name: user.name,
+            locationIds: user.location_ids,
+            isOffline: false
+          })
 
-      const token = getToken()
-      if (token) scheduleRefresh(token, timerRef, setAuth)
+          const token = getToken()
+          if (token) scheduleRefresh(token, timerRef, setAuth)
     })
     .catch(() => { 
       // If the backend rejects the stored token, wipe it out
@@ -491,20 +531,23 @@ export default function App() {
   }
 }, [])
 
-  function handleLogin(userId: string, role: Role, name: string, locationIds: string[]) {
-    setAuth({ userId, role, name, locationIds })
-    syncLocations()
-    // Ensure ONLY admins attempt to sync the user database on login
-    if (role === 'admin' || role === 'regional-controller') {
-      syncUsers()
+  function handleLogin(userId: string, role: Role, name: string, locationIds: string[], isOffline: boolean) {
+    setAuth({ userId, role, name, locationIds, isOffline })
+    if (!isOffline) {
+      syncLocations()
+      if (role === 'admin' || role === 'regional-controller') {
+        syncUsers()
+      }
+      const token = getToken()
+      if (token) scheduleRefresh(token, timerRef, setAuth)
     }
-    const token = getToken()
-    if (token) scheduleRefresh(token, timerRef, setAuth)
   }
 
   function handleLogout() {
     if (timerRef.current) clearTimeout(timerRef.current)
     logout()
+    sessionStorage.removeItem('compass_real_locations')
+    sessionStorage.removeItem('compass_real_users')
     setAuth(null)
   }
 

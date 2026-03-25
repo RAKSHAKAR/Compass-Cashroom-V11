@@ -50,6 +50,10 @@ export function missControllerVisit(id: string, body: MissVerificationBody): Pro
   return api.patch<ApiVerification>(`/verifications/controller/${id}/miss`, body)
 }
 
+export function cancelControllerVisit(id: string): Promise<void> {
+  return api.delete(`/verifications/controller/${id}`)
+}
+
 // ── DGM verifications ─────────────────────────────────────────────────────────
 
 export function scheduleDgmVisit(body: ScheduleDgmBody): Promise<ApiVerification> {
@@ -81,4 +85,8 @@ export function completeDgmVisit(
 
 export function missDgmVisit(id: string, body: MissVerificationBody): Promise<ApiVerification> {
   return api.patch<ApiVerification>(`/verifications/dgm/${id}/miss`, body)
+}
+
+export function cancelDgmVisit(id: string): Promise<void> {
+  return api.delete(`/verifications/dgm/${id}`)
 }

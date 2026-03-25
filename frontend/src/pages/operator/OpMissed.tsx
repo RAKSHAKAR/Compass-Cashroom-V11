@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { getLocation, USERS, EXPLAINED_MISSED, MISSED_EXPLANATIONS } from '../../mock/data'
 import { logMissedSubmission } from '../../api/submissions'
 import type { MissedReason } from '../../api/types'
+import { getToken } from '../../api/client'
 
 interface Props {
   ctx: Record<string, string>
@@ -42,15 +43,19 @@ export default function OpMissed({ ctx, onNavigate }: Props) {
     if (!detail.trim()) { setError('Please provide details.'); return }
     if (!supervisorName.trim()) { setError('Supervisor name is required.'); return }
     setError('')
-    try {
-      await logMissedSubmission({
-        location_id: ctx.locationId,
-        missed_date: ctx.date,
-        reason: reason as MissedReason,
-        detail: detail.trim(),
-        supervisor_name: supervisorName.trim(),
-      })
-    } catch { /* API unavailable — show success in demo mode */ }
+    
+    if (getToken()) {
+      try {
+        await logMissedSubmission({
+          location_id: ctx.locationId,
+          missed_date: ctx.date,
+          reason: reason as MissedReason,
+          detail: detail.trim(),
+          supervisor_name: supervisorName.trim(),
+        })
+      } catch (err) { console.error('Failed to log missed submission', err) }
+    }
+    
     EXPLAINED_MISSED.add(`${ctx.locationId}|${ctx.date}`)
     MISSED_EXPLANATIONS.set(`${ctx.locationId}|${ctx.date}`, {
       reason, detail: detail.trim(), supervisorName: supervisorName.trim(),

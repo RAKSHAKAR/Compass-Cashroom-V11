@@ -2,6 +2,7 @@ import { useMemo, useState, useEffect } from 'react'
 import { LOCATIONS, formatCurrency } from '../../mock/data'
 import { getSectionTrends } from '../../api/reports'
 import type { SectionTrends } from '../../api/types'
+import { getToken } from '../../api/client'
 import KpiCard from '../../components/KpiCard'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -146,7 +147,7 @@ const PERIOD_OPTIONS: Record<Granularity, { label: string; n: number }[]> = {
 
 // ── CSV export ─────────────────────────────────────────────────────────────
 function downloadCSV(chartData: DataPoint[], sectionKey: string, activeSecLabel: string, locationId: string, granularity: Granularity) {
-  const locName = locationId === 'all' ? 'All Locations' : (LOCATIONS.find(l => l.id === locationId)?.name || locationId)
+  const locName = locationId === 'all' ? 'All Locations' : (locs.find(l => l.id === locationId)?.name || locationId)
 
   // Header specifically targets the data actively being viewed
   const headers = ['Location', 'Period', 'Granularity', `Section ${activeSecLabel}`]
@@ -182,6 +183,12 @@ function calcPeriodsFromRange(gran: Granularity, from: string, to: string): numb
 
 // ── Component ──────────────────────────────────────────────────────────────
 export default function RcTrends({ adminName }: Props) {
+  const [locs, setLocs] = useState<any[]>(() => !getToken() ? LOCATIONS : [])
+  useEffect(() => {
+    if (getToken()) {
+      try { setLocs(JSON.parse(sessionStorage.getItem('compass_real_locations') || '[]')) } catch {}
+    }
+  }, [])
   const [granularity,    setGranularity]    = useState<Granularity>('monthly')
   const [periodN,        setPeriodN]        = useState(6)
   const [useCustomRange, setUseCustomRange] = useState(false)
@@ -206,27 +213,30 @@ export default function RcTrends({ adminName }: Props) {
   }
 
   useEffect(() => {
+    if (!getToken()) {
+      // Demo Mode Bypass: Defer state updates to satisfy ESLint, block API, and trigger local mock data
+      Promise.resolve().then(() => { 
+        setApiTrends(null); 
+        setIsLoading(false); 
+      });
+      return;
+    }
+
     Promise.resolve().then(() => { setIsLoading(true); setFetchError(''); });
+    
     getSectionTrends({
-      section:     activeSec.short,
-      granularity: granularity === 'daily' ? 'weekly' : granularity, 
-      periods:     effectivePeriodN,
       location_id: locationId === 'all' ? undefined : locationId,
-    }).then(data => {
-      setApiTrends(data);
-      setIsLoading(false);
-    }).catch((err) => {
-      setApiTrends(null);
-      setIsLoading(false);
-      const error = err instanceof Error ? err : new Error(String(err));
-      const isNetworkError = error instanceof TypeError || error.message === 'Failed to fetch' || error.message === 'Network Error';
-      if (isNetworkError) {
-        setFetchError('Could not reach the server. Make sure the backend is running on port 8000.')
-      } else {
-        setFetchError(error.message || 'Failed to load trends data.')
-      }
+      granularity: granularity as unknown as "weekly" | "monthly" | "quarterly",
+      periods: effectivePeriodN,
+      section: sectionKey,
     })
-  }, [sectionKey, granularity, effectivePeriodN, locationId]) // eslint-disable-line react-hooks/exhaustive-deps
+      .then(res => setApiTrends(res))
+      .catch(err => {
+        console.error('Failed to load trend data:', err);
+        setApiTrends(null);
+      })
+      .finally(() => setIsLoading(false));
+  }, [locationId, granularity, effectivePeriodN, sectionKey]);
 
   const mockData = useMemo((): DataPoint[] => genPts(locationId, granularity, effectivePeriodN),
     [granularity, effectivePeriodN, locationId])
@@ -372,7 +382,7 @@ export default function RcTrends({ adminName }: Props) {
               >
                 All
               </button>
-              {LOCATIONS.filter(l => l.active).map(l => {
+              {locs.filter(l => l.active).map(l => {
                 const locData = l as unknown as { costCenter?: string; cost_center?: string; id: string };
                 const rawCC = locData.costCenter || locData.cost_center || locData.id;
                 const cc = formatCC(rawCC);

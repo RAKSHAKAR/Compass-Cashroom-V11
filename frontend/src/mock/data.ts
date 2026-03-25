@@ -151,26 +151,92 @@ export function saveVerificationReview(review: VerificationReview) {
 
 // ── Locations ─────────────────────────────────────────────────────────────
 // Populated via Admin → Import Roster (persisted in localStorage)
-export const LOCATIONS: Location[] = loadStored<Location>('compass_locations', [])
+const DEFAULT_LOCATIONS: Location[] = [
+  { id: 'loc-1', name: 'Downtown District', cost_center: '1001', city: 'Metropolis', expectedCash: 5000, tolerancePct: 5, active: true },
+  { id: 'loc-2', name: 'Northside Hub', cost_center: '1002', city: 'Metropolis', expectedCash: 3500, tolerancePct: 5, active: true },
+  { id: 'loc-3', name: 'West End Cashroom', cost_center: '1003', city: 'Metropolis', expectedCash: 8000, tolerancePct: 10, active: true },
+]
+export const LOCATIONS: Location[] = loadStored<Location>('compass_locations', DEFAULT_LOCATIONS)
+
+// Helper to generate dates relative to today
+const dMinus = (days: number) => {
+  const d = new Date()
+  d.setDate(d.getDate() - days)
+  return d.toISOString().split('T')[0]
+}
+const isoMinus = (days: number, hours = 0) => {
+  const d = new Date()
+  d.setDate(d.getDate() - days)
+  d.setHours(d.getHours() - hours)
+  return d.toISOString()
+}
 
 export const IMPREST = 9575.00
 
-
-
 // ── Submissions ─────────────────────────────────────────────────────────────
-// Populated at runtime via form submissions
-export const SUBMISSIONS: Submission[] = []
+export const SUBMISSIONS: Submission[] = [
+  {
+    id: 'SUB-101', locationId: 'loc-1', operatorName: 'Demo Operator', date: dMinus(0), status: 'pending_approval', source: 'FORM',
+    totalCash: 5000.00, expectedCash: 5000.00, variance: 0, variancePct: 0.0, submittedAt: isoMinus(0, 2),
+    sections: { A: 2500, B: 1000, C: 500, D: 250, E: 250, F: 500, G: 0, H: 0, I: 0 },
+    varianceException: false
+  },
+  {
+    id: 'SUB-102', locationId: 'loc-2', operatorName: 'Alice Smith', date: dMinus(0), status: 'pending_approval', source: 'FORM',
+    totalCash: 3500.00, expectedCash: 3500.00, variance: 0, variancePct: 0.0, submittedAt: isoMinus(3, 4), // Overdue SLA!
+    sections: { A: 1000, B: 1000, C: 500, D: 500, E: 500, F: 0, G: 0, H: 0, I: 0 },
+    varianceException: false
+  },
+  {
+    id: 'SUB-103', locationId: 'loc-3', operatorName: 'Charlie Davis', date: dMinus(1), status: 'approved', source: 'EXCEL',
+    totalCash: 8000.00, expectedCash: 8000.00, variance: 0, variancePct: 0, submittedAt: isoMinus(1, 6), approvedBy: 'U2', approvedByName: 'Demo Controller',
+    sections: { A: 4000, B: 2000, C: 1000, D: 500, E: 500, F: 0, G: 0, H: 0, I: 0 },
+    varianceException: false
+  },
+  {
+    id: 'SUB-104', locationId: 'loc-1', operatorName: 'Demo Operator', date: dMinus(2), status: 'rejected', source: 'FORM',
+    totalCash: 4800.00, expectedCash: 5000.00, variance: -200, variancePct: -4.0, submittedAt: isoMinus(2, 2), approvedBy: 'U2', approvedByName: 'Demo Controller',
+    rejectionReason: "Shortage in Section A. Please recount.",
+    sections: { A: 2000, B: 1000, C: 500, D: 500, E: 500, F: 0, G: 0, H: 300, I: 0 },
+    varianceException: false
+  },
+  {
+    id: 'SUB-105', locationId: 'loc-2', operatorName: 'Alice Smith', date: dMinus(3), status: 'approved', source: 'FORM',
+    totalCash: 3700.00, expectedCash: 3500.00, variance: 200, variancePct: 5.71, submittedAt: isoMinus(3), approvedBy: 'U2', approvedByName: 'Demo Controller',
+    sections: { A: 1700, B: 1000, C: 500, D: 500, E: 0, F: 0, G: 0, H: 0, I: 0 },
+    varianceException: true, varianceNote: "Found an extra $200 bill bundle under the register tray."
+  },
+]
 
 // ── Drafts ────────────────────────────────────────────────────────────────
-// Cleared by default — drafts are created during form entry sessions
-export const DRAFTS: Draft[] = []
+export const DRAFTS: Draft[] = [
+  {
+    id: 'DFT-101', locationId: 'loc-1', date: dMinus(0), savedAt: isoMinus(0, 1),
+    sections: { A: 2500, B: 500 }, totalSoFar: 3000.00
+  }
+]
 
 // ── Verifications ─────────────────────────────────────────────────────────
-// Populated at runtime via controller/DGM log screens
-export const VERIFICATIONS: VerificationRecord[] = []
+export const VERIFICATIONS: VerificationRecord[] = [
+  // Controller Visits
+  { id: 'VER-C1', locationId: 'loc-1', verifierName: 'Demo Controller', type: 'controller', date: dMinus(2), status: 'completed', observedTotal: 5000.00, dayOfWeek: new Date(dMinus(2)).getDay(), warningFlag: false, notes: 'All cash accounted for.' },
+  { id: 'VER-C2', locationId: 'loc-2', verifierName: 'Demo Controller', type: 'controller', date: dMinus(15), status: 'completed', observedTotal: 3500.00, dayOfWeek: new Date(dMinus(15)).getDay(), warningFlag: true, notes: 'DOW warning overridden.' },
+  { id: 'VER-C3', locationId: 'loc-3', verifierName: 'Demo Controller', type: 'controller', date: dMinus(1), status: 'missed', dayOfWeek: new Date(dMinus(1)).getDay(), warningFlag: false, missedReason: 'Operational conflict — staff not available', notes: '' },
+  { id: 'VER-C4', locationId: 'loc-2', verifierName: 'Demo Controller', type: 'controller', date: dMinus(-2), status: 'scheduled', dayOfWeek: new Date(dMinus(-2)).getDay(), warningFlag: false, scheduledTime: '14:00', notes: '' },
+  
+  // DGM Visits
+  { id: 'VER-D1', locationId: 'loc-1', verifierName: 'Demo DGM', type: 'dgm', date: dMinus(10), status: 'completed', observedTotal: 5000.00, dayOfWeek: new Date(dMinus(10)).getDay(), warningFlag: false, notes: 'Routine monthly check.' },
+  { id: 'VER-D2', locationId: 'loc-2', verifierName: 'Demo DGM', type: 'dgm', date: dMinus(-5), status: 'scheduled', dayOfWeek: new Date(dMinus(-5)).getDay(), warningFlag: false, scheduledTime: '09:00', notes: '' },
+]
 
 // ── Audit Events ──────────────────────────────────────────────────────────
-export const AUDIT_EVENTS: AuditEvent[] = []
+export const AUDIT_EVENTS: AuditEvent[] = [
+  { id: 'AUD-1', eventType: 'USER_LOGIN', actor: 'Demo Admin', detail: 'User logged in to the system via Demo Mode.', timestamp: isoMinus(0, 1) },
+  { id: 'AUD-2', eventType: 'SUBMISSION_SUBMITTED', actor: 'Demo Operator', locationId: 'loc-1', detail: 'Submitted daily cash form for $5,000.00.', timestamp: isoMinus(0, 2) },
+  { id: 'AUD-3', eventType: 'SUBMISSION_REJECTED', actor: 'Demo Controller', locationId: 'loc-1', detail: 'Rejected submission SUB-104 due to variance.', timestamp: isoMinus(1, 5) },
+  { id: 'AUD-4', eventType: 'CONTROLLER_VERIFIED', actor: 'Demo Controller', locationId: 'loc-1', detail: 'Completed physical verification. Matched expected $5,000.00.', timestamp: isoMinus(2, 4) },
+  { id: 'AUD-5', eventType: 'CONFIG_UPDATED', actor: 'Demo Admin', detail: 'Updated global SLA threshold to 48 hours.', timestamp: isoMinus(5, 0) },
+]
 
 // Tracks dates where the operator submitted an absence explanation (key: `${locationId}|${date}`)
 export const EXPLAINED_MISSED = new Set<string>()
@@ -180,19 +246,31 @@ export interface ExplanationData { reason: string; detail: string; supervisorNam
 export const MISSED_EXPLANATIONS = new Map<string, ExplanationData>()
 
 // ── Users ─────────────────────────────────────────────────────────────────
-// Only the system admin account exists at startup.
 // All other users are populated via Admin → Import Roster (persisted in localStorage).
 const DEFAULT_USERS: User[] = [
-  { id: 'U5', name: 'T. Admin', email: 'admin@compass.com', role: 'admin', locationIds: [], active: true },
+  { id: 'U5', name: 'Demo Admin', email: 'admin@compassusa.com', role: 'admin', locationIds: [], active: true },
+  { id: 'U1', name: 'Demo Operator', email: 'operator@compassusa.com', role: 'operator', locationIds: ['loc-1'], active: true },
+  { id: 'U2', name: 'Demo Controller', email: 'controller@compassusa.com', role: 'controller', locationIds: ['loc-1', 'loc-2'], active: true },
+  { id: 'U3', name: 'Demo DGM', email: 'dgm@compassusa.com', role: 'dgm', locationIds: ['loc-1', 'loc-2', 'loc-3'], active: true },
+  { id: 'U4', name: 'Demo RC', email: 'rc@compassusa.com', role: 'regional-controller', locationIds: [], active: true },
 ]
-export const USERS: User[] = loadStored<User>('compass_users', DEFAULT_USERS)
-
+// Changed storage key to 'compass_users_v2' to force a cache bust and ensure demo users are loaded
+export const USERS: User[] = loadStored<User>('compass_users_v2', DEFAULT_USERS)
 // ── Helpers ───────────────────────────────────────────────────────────────
 export function getSubmission(locationId: string, date: string) {
   return SUBMISSIONS.find(s => s.locationId === locationId && s.date === date) ?? null
 }
 export function getLocation(id: string) {
-  return LOCATIONS.find(l => l.id === id) ?? null
+  const hasToken = !!localStorage.getItem('compass_token') || !!sessionStorage.getItem('compass_token');
+  if (hasToken) {
+    try {
+      const realLocs = JSON.parse(sessionStorage.getItem('compass_real_locations') || '[]') as Location[];
+      const found = realLocs.find(l => l.id === id);
+      if (found) return found;
+      return null; // CRITICAL: Never fall back to mock data for real users
+    } catch { return null; }
+  }
+  return LOCATIONS.find(l => l.id === id) ?? null;
 }
 export function formatCurrency(n: number) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n)

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { LOCATIONS, formatCurrency } from '../../mock/data'
 import { getConfig, updateConfig, setLocationOverride, removeLocationOverride } from '../../api/admin'
+import { getToken } from '../../api/client'
 
 interface Props { adminName: string }
 
@@ -19,6 +20,14 @@ function LabelRow({ label, sub, children }: { label: string; sub?: string; child
 }
 
 export default function AdmConfig({ adminName }: Props) {
+  const [locs, setLocs] = useState<typeof LOCATIONS>(() => !getToken() ? LOCATIONS : [])
+  useEffect(() => {
+    if (getToken()) {
+      Promise.resolve().then(() => {
+        try { setLocs(JSON.parse(sessionStorage.getItem('compass_real_locations') || '[]')) } catch { console.warn('Failed to parse real locations') }
+      })
+    }
+  }, [])
   const [globals, setGlobals] = useState(GLOBALS_DEFAULT)
   const [locOverrides, setLocOverrides] = useState<Record<string, { tolerancePct: string }>>({})
   const [saved, setSaved] = useState(false)
@@ -27,6 +36,21 @@ export default function AdmConfig({ adminName }: Props) {
 
   // Load config from API on mount
   useEffect(() => {
+    if (!getToken()) {
+      // Demo Mode: Load mock configuration from local browser storage
+      Promise.resolve().then(() => {
+        const localSys = localStorage.getItem('mockSystemConfig')
+        if (localSys) {
+          try { setGlobals(p => ({ ...p, ...JSON.parse(localSys) })) } catch { console.warn('Failed to parse mock system config') }
+        }
+        const localOverrides = localStorage.getItem('mockLocOverrides')
+        if (localOverrides) {
+          try { setLocOverrides(JSON.parse(localOverrides)) } catch { console.warn('Failed to parse mock location overrides') }
+        }
+      })
+      return
+    }
+
     getConfig().then(cfg => {
       setGlobals({
         imprest:          String(9575),   // imprest not in API config; keep default
@@ -67,6 +91,16 @@ export default function AdmConfig({ adminName }: Props) {
     const e = validate()
     if (Object.keys(e).length) { setErrors(e); return }
     setSaveError('')
+
+    if (!getToken()) {
+      // Demo Mode Bypass: Save settings to local browser storage, no API call
+      localStorage.setItem('mockSystemConfig', JSON.stringify(globals))
+      localStorage.setItem('mockLocOverrides', JSON.stringify(locOverrides))
+      setSaved(true)
+      setTimeout(() => setSaved(false), 3000)
+      return
+    }
+
     try {
       await updateConfig({
         default_tolerance_pct: Number(globals.tolerancePct),
@@ -76,7 +110,7 @@ export default function AdmConfig({ adminName }: Props) {
         data_retention_years:  Number(globals.retentionYears),
       })
       // Sync per-location overrides
-      await Promise.all(LOCATIONS.map(loc => {
+      await Promise.all(locs.map(loc => {
         const ov = locOverrides[loc.id]?.tolerancePct
         if (ov) return setLocationOverride(loc.id, Number(ov)).catch(() => {})
         return removeLocationOverride(loc.id).catch(() => {})
@@ -179,7 +213,7 @@ export default function AdmConfig({ adminName }: Props) {
               </tr>
             </thead>
             <tbody>
-              {LOCATIONS.map(loc => {
+              {locs.map(loc => {
                 const ov = locOverrides[loc.id]?.tolerancePct ?? ''
                 const effective = ov ? Number(ov) : Number(globals.tolerancePct)
                 return (

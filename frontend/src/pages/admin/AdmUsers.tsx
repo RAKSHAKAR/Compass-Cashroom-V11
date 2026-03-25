@@ -5,7 +5,7 @@ import { readGrants, writeGrants } from '../../utils/operatorAccess'
 import type { AccessGrant, AccessType } from '../../utils/operatorAccess'
 import { listUsers, listLocations, createUser, updateUser, deactivateUser, reactivateUser, listAccessGrants, grantAccess, updateGrantNote, revokeAccess, purgeNonAdminUsers, getConfig, updateConfig } from '../../api/admin'
 import { me as getMe } from '../../api/auth'
-import { ApiError } from '../../api/client'
+import { ApiError, getToken } from '../../api/client'
 import type { ApiUser, ApiRole } from '../../api/types'
 
 function mapApiUser(u: ApiUser): User {
@@ -54,7 +54,6 @@ const SYS_INIT = { dowLookbackWeeks: 4 as 4 | 6, reminderTime: '08:00', retentio
 export default function AdmUsers({ adminName }: Props) {
   const [users,        setUsers]        = useState<User[]>([])
   const [loading,      setLoading]      = useState(true)
-  const [fetchError,   setFetchError]   = useState('')
   const [apiLocations, setApiLocations] = useState<{id: string; name: string}[]>(LOCATIONS.map(l => ({ id: l.id, name: l.name })))
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
 
@@ -63,6 +62,20 @@ export default function AdmUsers({ adminName }: Props) {
   const [ctrlGrants, setCtrlGrants] = useState<Record<string, AccessGrant>>(() => readGrants('controller'))
 
   useEffect(() => {
+    if (!getToken()) {
+      // Demo Mode Bypass: Load strictly from local mocks, no API calls
+      Promise.resolve().then(() => {
+        setUsers([...USERS])
+        setApiLocations(LOCATIONS.map(l => ({ id: l.id, name: l.name })))
+        const localSys = localStorage.getItem('mockSystemConfig')
+        if (localSys) {
+          try { setSys(JSON.parse(localSys)) } catch { console.warn('Failed to parse sys config') }
+        }
+        setLoading(false)
+      })
+      return
+    }
+
     getMe().then(u => setCurrentUserId(u.id)).catch(() => {})
     // FETCH EXISTING SETTINGS
     getConfig().then(cfg => {
@@ -73,15 +86,10 @@ export default function AdmUsers({ adminName }: Props) {
       })
     }).catch(() => { /* keep defaults if fails */ })
     listUsers({ page_size: 200 })
-      .then(r => { setUsers(r.items.map(mapApiUser)); setFetchError('') })
+      .then(r => setUsers(r.items.map(mapApiUser)))
       .catch((err: unknown) => {
-        if (err instanceof ApiError && err.status === 401) {
-          setFetchError('Your session is not valid. Please sign out and log in again with your real credentials.')
-          setUsers([])
-        } else {
-          setFetchError('Could not reach the server. Make sure the backend is running on port 8000.')
-          setUsers([...USERS])
-        }
+        console.error('Failed to load users:', err)
+        setUsers([])
       })
       .finally(() => setLoading(false))
     listLocations()
@@ -140,14 +148,17 @@ export default function AdmUsers({ adminName }: Props) {
     const { type } = grantEdit
     const existingGrant = getGrants(type)[u.id]
     let grantId = existingGrant?.grantId
-    try {
-      if (grantId) {
-        await updateGrantNote(grantId, grantNote.trim())
-      } else {
-        const res = await grantAccess(u.id, type, grantNote.trim())
-        grantId = res.id
-      }
-    } catch { /* proceed with local update */ }
+    
+    if (getToken()) {
+      try {
+        if (grantId) {
+          await updateGrantNote(grantId, grantNote.trim())
+        } else {
+          const res = await grantAccess(u.id, type, grantNote.trim())
+          grantId = res.id
+        }
+      } catch (err) { console.error(err) }
+    }
     const updated = {
       ...getGrants(type),
       [u.id]: { userId: u.id, userName: u.name, role: u.role, note: grantNote.trim(), grantedAt: new Date().toISOString(), grantId },
@@ -161,8 +172,8 @@ export default function AdmUsers({ adminName }: Props) {
 
   async function revokeGrant(u: User, type: AccessType) {
     const existing = getGrants(type)[u.id]
-    if (existing?.grantId) {
-      try { await revokeAccess(existing.grantId) } catch { /* proceed locally */ }
+    if (existing?.grantId && getToken()) {
+      try { await revokeAccess(existing.grantId) } catch (err) { console.error(err) }
     }
     const updated = { ...getGrants(type) }
     delete updated[u.id]
@@ -231,17 +242,18 @@ export default function AdmUsers({ adminName }: Props) {
     const e = validate(); if (Object.keys(e).length) { setErrors(e); return }
     if (mode==='add') {
       const nu: User = { id:`U${Date.now()}`, name:form.name.trim(), email:form.email.trim(), role:form.role, locationIds:form.locationIds, active:true }
-      try {
-        const created = await createUser({ name:nu.name, email:nu.email, password:form.password, role:roleToApiRole(nu.role), location_ids:nu.locationIds })
-        nu.id = created.id
-      } catch (err) {
-        if (err instanceof ApiError) {
-          const msg = err.message || 'Failed to create user'
-          if (msg.toLowerCase().includes('email')) setErrors(e => ({...e, email: msg}))
-          else setErrors(e => ({...e, name: msg}))
-          return
+      if (getToken()) {
+        try {
+          const created = await createUser({ name:nu.name, email:nu.email, password:form.password, role:roleToApiRole(nu.role), location_ids:nu.locationIds })
+          nu.id = created.id
+        } catch (err) {
+          if (err instanceof ApiError) {
+            const msg = err.message || 'Failed to create user'
+            if (msg.toLowerCase().includes('email')) setErrors(e => ({...e, email: msg}))
+            else setErrors(e => ({...e, name: msg}))
+            return
+          }
         }
-        // demo mode — continue with local state
       }
       setUsers(p => {
         const next = [...p, nu]
@@ -268,10 +280,12 @@ export default function AdmUsers({ adminName }: Props) {
 
   async function toggleActive(id: string) {
     const user = users.find(u => u.id === id)
-    try {
-      if (user?.active) await deactivateUser(id)
-      else              await reactivateUser(id)
-    } catch { /* demo mode */ }
+    if (getToken()) {
+      try {
+        if (user?.active) await deactivateUser(id)
+        else              await reactivateUser(id)
+      } catch (err) { console.error(err) }
+    }
     setUsers(p=>p.map(u=>u.id===id?{...u,active:!u.active}:u))
     setConfirm(null)
     flash('User status updated.')
@@ -279,9 +293,21 @@ export default function AdmUsers({ adminName }: Props) {
 
   async function handlePurge() {
     setPurging(true)
+
+    if (!getToken()) {
+      setTimeout(() => {
+        const adminsOnly = users.filter(u => u.role === 'admin')
+        setUsers(adminsOnly)
+        USERS.splice(0, USERS.length, ...adminsOnly)
+        setPurgeConfirm(false)
+        flash('Removed mock users. Admin account preserved.')
+        setPurging(false)
+      }, 500)
+      return
+    }
+
     try {
       const res = await purgeNonAdminUsers()
-      // Clear local state — keep only admin users
       const adminsOnly = users.filter(u => u.role === 'admin')
       setUsers(adminsOnly)
       USERS.splice(0, USERS.length, ...adminsOnly)
@@ -397,9 +423,7 @@ export default function AdmUsers({ adminName }: Props) {
               {loading && (
                 <tr><td colSpan={6} style={{textAlign:'center',padding:'24px',color:'var(--ts)',fontSize:13}}>Loading users…</td></tr>
               )}
-              {!loading && fetchError && (
-                <tr><td colSpan={6} style={{textAlign:'center',padding:'16px',color:'var(--red)',fontSize:13,fontWeight:600}}>⚠ {fetchError}</td></tr>
-              )}
+              
               {/* Add row */}
               {mode==='add' && (
                 <tr style={{background:'var(--g0)'}}>
@@ -760,9 +784,26 @@ function AddEditForm({ form, setForm, errors, setErrors, locNeeded, toggleLoc, l
       )}
       {locNeeded && (
         <div style={{flex:'1 1 220px'}}>
-          <label style={{fontSize:11,fontWeight:600,color:errors.locationIds?'var(--red)':'var(--td)',display:'block',marginBottom:4}}>
-            Location{form.role !== 'operator' ? 's' : ''} {['operator','controller','dgm'].includes(form.role) ? '*' : ''}
-            {form.role === 'operator' && <span style={{fontSize:10,fontWeight:400,color:'var(--ts)',marginLeft:6}}>(single only)</span>}
+          <label style={{fontSize:11,fontWeight:600,color:errors.locationIds?'var(--red)':'var(--td)',display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
+            <span>
+              Location{form.role !== 'operator' ? 's' : ''} {['operator','controller','dgm'].includes(form.role) ? '*' : ''}
+              {form.role === 'operator' && <span style={{fontSize:10,fontWeight:400,color:'var(--ts)',marginLeft:6}}>(single only)</span>}
+            </span>
+            {form.role !== 'operator' && locations.length > 0 && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--ts)', cursor: 'pointer', fontWeight: 400 }}>
+                <input
+                  type="checkbox"
+                  style={{ accentColor: 'var(--g7)' }}
+                  checked={form.locationIds.length === locations.length}
+                  onChange={(e) => {
+                    const isChecked = e.target.checked;
+                    setForm(p => ({ ...p, locationIds: isChecked ? locations.map(l => l.id) : [] }));
+                    setErrors(p => ({ ...p, locationIds: '' }));
+                  }}
+                />
+                Select All
+              </label>
+            )}
           </label>
           <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
             {locations.map(l=>(

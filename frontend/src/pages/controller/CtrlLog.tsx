@@ -3,6 +3,7 @@ import { VERIFICATIONS, LOCATIONS, getLocation, todayStr } from '../../mock/data
 import type { VerificationRecord } from '../../mock/data'
 import { scheduleControllerVisit, listControllerVerifications } from '../../api/verifications'
 import type { ApiVerification } from '../../api/types'
+import { getToken } from '../../api/client'
 
 interface Props {
   controllerName: string
@@ -62,6 +63,10 @@ export default function CtrlLog({ controllerName, locationIds, ctx, onNavigate }
 
   const [apiVerifs, setApiVerifs] = useState<VerificationRecord[]>([])
   useEffect(() => {
+    if (!getToken()) {
+      Promise.resolve().then(() => setApiVerifs([]))
+      return
+    }
     listControllerVerifications()
       .then(r => setApiVerifs(r.items.map(mapApiVerification).filter(v => locationIds.includes(v.locationId))))
       .catch(() => { /* fall back to mock */ })
@@ -201,6 +206,15 @@ export default function CtrlLog({ controllerName, locationIds, ctx, onNavigate }
       warningFlag:   !!dowWarning,
       status:        'scheduled',
     }
+    if (!getToken()) {
+      setTimeout(() => {
+        VERIFICATIONS.push(rec)
+        setSaving(false)
+        setSubmitted(rec)
+      }, 400)
+      return
+    }
+
     try {
         const res = await scheduleControllerVisit({
           location_id:                location,

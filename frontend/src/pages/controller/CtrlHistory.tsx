@@ -4,6 +4,7 @@ import type { VerificationRecord } from '../../mock/data'
 import { listControllerVerifications } from '../../api/verifications'
 import type { ApiVerification } from '../../api/types'
 import KpiCard from '../../components/KpiCard'
+import { getToken } from '../../api/client'
 
 function mapApiVerif(v: ApiVerification): VerificationRecord {
   return {
@@ -47,6 +48,10 @@ export default function CtrlHistory({ controllerName, locationIds, onNavigate }:
   const [apiVerifs,      setApiVerifs]      = useState<VerificationRecord[]>([])
 
   useEffect(() => {
+    if (!getToken()) {
+      Promise.resolve().then(() => setApiVerifs([]))
+      return
+    }
     Promise.all(locationIds.map(id =>
       listControllerVerifications({ location_id: id, status: 'completed', page_size: 100 })
         .then(r => r.items.map(mapApiVerif))
@@ -62,7 +67,7 @@ export default function CtrlHistory({ controllerName, locationIds, onNavigate }:
   [locationIds])
 
   const allRecords = useMemo(() =>
-    (apiVerifs.length > 0 ? apiVerifs : mockRecords)
+    (!getToken() ? mockRecords : apiVerifs)
       .sort((a, b) => b.date.localeCompare(a.date)),
   [apiVerifs, mockRecords])
 

@@ -5,6 +5,7 @@ import { listSubmissions } from '../../api/submissions'
 import { listLocations } from '../../api/locations'
 import type { ApiSubmission, ApiLocation } from '../../api/types'
 import KpiCard from '../../components/KpiCard'
+import { getToken } from '../../api/client'
 
 const SECTIONS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'] as const
 
@@ -67,10 +68,8 @@ export default function MgrApprovals({ managerName, locationIds, onNavigate }: P
   const [locationFilter, setLocationFilter] = useState<string>('all')
   const [page, setPage] = useState(0)
   const [apiLocations, setApiLocations] = useState<ApiLocation[]>([])
+  const [isLoading, setIsLoading] = useState(!!getToken())
 
-  useEffect(() => {
-    listLocations().then(setApiLocations).catch(() => {})
-  }, [])
   // Load persisted submission reviews from localStorage
   const [reviews] = useState<Record<string, SubmissionReview>>(() => {
     try {
@@ -81,13 +80,27 @@ export default function MgrApprovals({ managerName, locationIds, onNavigate }: P
 
   // API-fetched submissions — overlay over mock data
   const [apiSubs, setApiSubs] = useState<Submission[]>([])
+  
+  const locIdsJoined = locationIds.join(',')
   useEffect(() => {
-    const key = locationIds.join(',')
-    if (!key) return
-    Promise.all(locationIds.map(id => listSubmissions({ location_id: id, page_size: 100 }).then(r => r.items.map(mapApiSub))))
+    if (!locIdsJoined) return
+    if (!getToken()) {
+      Promise.resolve().then(() => {
+        setApiSubs([])
+        setIsLoading(false)
+      })
+      return
+    }
+
+    Promise.resolve().then(() => setIsLoading(true))
+
+    const p1 = listLocations().then(setApiLocations).catch(() => {})
+    const p2 = Promise.all(locationIds.map(id => listSubmissions({ location_id: id, page_size: 100 }).then(r => r.items.map(mapApiSub))))
       .then(arrays => setApiSubs(arrays.flat()))
       .catch(() => { /* fall back to mock */ })
-  }, [locationIds.join(',')]) // eslint-disable-line react-hooks/exhaustive-deps
+
+    Promise.all([p1, p2]).finally(() => setIsLoading(false))
+  }, [locIdsJoined]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reset to page 0 when filters change
   useEffect(() => { setPage(0) },
@@ -101,7 +114,7 @@ export default function MgrApprovals({ managerName, locationIds, onNavigate }: P
   }, [dateRange])
 
   const sourceSubs = useMemo(() => {
-    const base = apiSubs.length > 0 ? apiSubs : SUBMISSIONS
+    const base = !getToken() ? SUBMISSIONS : apiSubs
     return base.map(s => {
       const loc = getLocation(s.locationId)
       const expCash = Number(s.expectedCash || (loc as unknown as Record<string, number>)?.expected_cash || (loc as unknown as Record<string, number>)?.expectedCash || IMPREST)
@@ -137,13 +150,7 @@ export default function MgrApprovals({ managerName, locationIds, onNavigate }: P
         return new Date(s.submittedAt).getTime() >= cutoff
       })
       .sort((a, b) => {
-        const aEff = effectiveStatus(a)
-        const bEff = effectiveStatus(b)
-        // Pending rows float to top, oldest-first (most urgent)
-        if (aEff === 'pending_approval' && bEff !== 'pending_approval') return -1
-        if (bEff === 'pending_approval' && aEff !== 'pending_approval') return 1
-        if (aEff === 'pending_approval') return new Date(a.submittedAt).getTime() - new Date(b.submittedAt).getTime()
-        // History: newest-first
+        // Strictly sort everything newest-first (descending date) regardless of status
         return new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime()
       })
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -341,7 +348,13 @@ export default function MgrApprovals({ managerName, locationIds, onNavigate }: P
         </div>
         <div className="card-body" style={{ padding: 0 }}>
 
-          {rows.length === 0 ? (
+          {isLoading ? (
+            <div style={{ padding: '64px 32px', textAlign: 'center' }}>
+              <div style={{ display: 'inline-block', width: 28, height: 28, border: '3px solid var(--ow2)', borderTopColor: 'var(--g4)', borderRadius: '50%', animation: 'spin 1s linear infinite', marginBottom: 16 }}></div>
+              <div style={{ fontWeight: 600, color: 'var(--ts)', fontSize: 14 }}>Loading approvals...</div>
+              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+            </div>
+          ) : rows.length === 0 ? (
             <div style={{ padding: '48px 32px', textAlign: 'center' }}>
               <div style={{ fontSize: 36, marginBottom: 10 }}>
                 {statusFilter === 'pending_approval' ? '✅' : '📭'}

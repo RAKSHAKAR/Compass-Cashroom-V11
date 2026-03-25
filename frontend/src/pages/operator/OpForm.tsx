@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { getLocation, formatCurrency, IMPREST, SUBMISSIONS, DRAFTS, todayStr, SUBMISSION_REVIEWS } from '../../mock/data'
 import { createSubmission, updateDraft, submitDraft, getSubmission } from '../../api/submissions'
+import { getToken } from '../../api/client'
 
 // ── Excel prefill helper ───────────────────────────────────────────────────────
 interface ExcelPrefill {
@@ -286,6 +287,8 @@ export default function OpForm({ ctx, onNavigate }: Props) {
     if (!ctx.submissionId || ctx.fromExcel === 'true') return
     const hasCache = !!sessionStorage.getItem(`denom_${ctx.submissionId}`)
     
+    if (!getToken()) return; // Demo Mode bypass
+    
     getSubmission(ctx.submissionId).then(sub => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const s = sub.sections as Record<string, any>
@@ -460,6 +463,44 @@ export default function OpForm({ ctx, onNavigate }: Props) {
       coinTransit: coinTransAmt,
       varianceNote: requiresNote ? varianceNote.trim() : ''
     }
+
+    if (!getToken()) {
+      setTimeout(() => {
+        const existingIdx = SUBMISSIONS.findIndex(s => s.locationId === ctx.locationId && s.date === ctx.date)
+        const newId = existingIdx >= 0 ? SUBMISSIONS[existingIdx].id : `SUB-${Date.now()}`
+        const newSub = {
+          id: newId, locationId: ctx.locationId, operatorName: 'A. Patel',
+          date: ctx.date, status: 'pending_approval' as const, source: (ctx.fromExcel === 'true' ? 'EXCEL' : 'FORM') as 'EXCEL' | 'FORM',
+          totalCash: Math.round(totalFund * 100) / 100,
+          expectedCash: location?.expectedCash ?? IMPREST,
+          variance:  Math.round(variance * 100) / 100,
+          variancePct: Math.round(variancePct * 100) / 100,
+          submittedAt: new Date().toISOString(),
+          sections: { A: totA, B: totB, C: totC, D: totD, E: totE, F: totF, G: totG, H: totH, I: totI },
+          varianceException: requiresNote,
+          varianceNote: requiresNote ? varianceNote.trim() : undefined,
+        }
+        if (existingIdx >= 0) SUBMISSIONS[existingIdx] = newSub
+        else SUBMISSIONS.push(newSub)
+        
+        if (draftId) {
+          const dIdx = DRAFTS.findIndex(d => d.id === draftId)
+          if (dIdx >= 0) DRAFTS.splice(dIdx, 1)
+          sessionStorage.removeItem(`denom_${draftId}`)
+        }
+        if (SUBMISSION_REVIEWS[newId]) {
+          delete SUBMISSION_REVIEWS[newId]
+          localStorage.setItem('compass_submission_reviews', JSON.stringify(SUBMISSION_REVIEWS))
+        }
+        sessionStorage.setItem(`op_status_${newId}`, 'pending_approval')
+        sessionStorage.setItem(`op_status_${ctx.locationId}_${ctx.date}`, 'pending_approval')
+        sessionStorage.setItem(`denom_${newId}`, JSON.stringify(denomDetail))
+        setSubmitting(false)
+        onNavigate(ctx.from || 'op-start')
+      }, 500)
+      return
+    }
+
     try {
       let submissionId: string
       const targetId = draftId || ctx.submissionId
@@ -580,6 +621,24 @@ export default function OpForm({ ctx, onNavigate }: Props) {
       holdover: holdoverAmt,
       coinTransit: coinTransAmt,
       varianceNote: varianceNote.trim()
+    }
+
+    if (!getToken()) {
+      setTimeout(() => {
+        const idx = DRAFTS.findIndex(d => d.locationId === ctx.locationId && d.date === ctx.date)
+        const newId = idx >= 0 ? DRAFTS[idx].id : `DFT-${Date.now()}`
+        const draft = {
+          id: newId,
+          locationId: ctx.locationId, date: ctx.date,
+          savedAt: new Date().toISOString(),
+          sections: { A: totA, B: totB }, totalSoFar: totalFund,
+        }
+        if (idx >= 0) DRAFTS[idx] = draft; else DRAFTS.push(draft)
+        if (!draftId) setDraftId(newId)
+        sessionStorage.setItem(`denom_${newId}`, JSON.stringify(denomDetail))
+        onNavigate(ctx.from || 'op-start')
+      }, 400)
+      return
     }
 
     try {

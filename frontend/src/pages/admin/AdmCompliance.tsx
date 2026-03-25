@@ -3,6 +3,7 @@ import { LOCATIONS, SUBMISSIONS, VERIFICATIONS, formatCurrency, IMPREST, todaySt
 import { getComplianceDashboard } from '../../api/compliance'
 import type { ComplianceDashboard } from '../../api/types'
 import KpiCard from '../../components/KpiCard'
+import { getToken } from '../../api/client'
 
 interface Props { adminName: string }
 
@@ -81,6 +82,11 @@ export default function AdmCompliance({ adminName }: Props) {
   }, [range, start, end, cm, cy])
 
   useEffect(() => {
+    if (!getToken()) {
+      Promise.resolve().then(() => { setDashboard(null); setFetchError(''); });
+      return;
+    }
+
     getComplianceDashboard()
       .then((data) => {
         setDashboard(data)
@@ -185,7 +191,7 @@ export default function AdmCompliance({ adminName }: Props) {
 
   // ── Sort ────────────────────────────────────────────────────────────────────
   const sortedRows = useMemo(() => {
-    const source = apiRows ?? rows
+    const source = !getToken() ? rows : (apiRows ?? [])
     if (sortKey === 'name') return [...source].sort((a,b)=>a.loc.name.localeCompare(b.loc.name))
     const ord: Record<CompStatus,number> = { red:0, amber:1, green:2 }
     return [...source].sort((a,b)=>ord[a.compStatus]-ord[b.compStatus])

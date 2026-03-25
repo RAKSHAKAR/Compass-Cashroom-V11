@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { DRAFTS, getLocation, formatCurrency, IMPREST } from '../../mock/data'
 import { listSubmissions, deleteDraft } from '../../api/submissions'
+import { getToken } from '../../api/client'
 
 interface Props {
   onNavigate: (panel: string, ctx?: Record<string, string>) => void
@@ -10,32 +11,39 @@ export default function OpDrafts({ onNavigate }: Props) {
   const [deletedIds, setDeletedIds] = useState<string[]>([])
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [apiDrafts, setApiDrafts] = useState<any[]>([])
+  const [isLoading, setIsLoading] = useState(!!getToken())
 
   useEffect(() => {
+    if (!getToken()) {
+      Promise.resolve().then(() => {
+        setApiDrafts([])
+        setIsLoading(false)
+      })
+      return
+    }
+    
     // Secure Isolation: The backend listSubmissions endpoint automatically filters
     // by the current operator's ID, ensuring they only see their own drafts.
     listSubmissions({ status: 'draft', page_size: 100 })
       .then(res => setApiDrafts(res.items))
       .catch(() => { /* fallback to mock */ })
+      .finally(() => setIsLoading(false))
   }, [])
 
-  const activeDrafts = apiDrafts.length > 0
-    ? apiDrafts.filter(d => !deletedIds.includes(d.id)).map(d => ({
+  const activeDrafts = !getToken()
+    ? DRAFTS.filter(d => !deletedIds.includes(d.id))
+    : apiDrafts.filter(d => !deletedIds.includes(d.id)).map(d => ({
         id: d.id, locationId: d.location_id, date: d.submission_date,
         savedAt: d.updated_at || d.created_at, sections: d.sections || {},
         totalSoFar: d.total_cash
       }))
-    : DRAFTS.filter(d => !deletedIds.includes(d.id))
 
   async function handleDelete(id: string) {
     if (!window.confirm("Are you sure you want to delete this draft? This cannot be undone.")) return;
-    try {
-      await deleteDraft(id)
-      setDeletedIds(prev => [...prev, id])
-    } catch {
-      // fallback for mock mode
-      setDeletedIds(prev => [...prev, id])
+    if (getToken()) {
+      try { await deleteDraft(id) } catch (err) { console.error('Failed to delete draft', err) }
     }
+    setDeletedIds(prev => [...prev, id])
   }
 
   function handleResume(draftId: string, locationId: string, date: string) {
@@ -55,7 +63,15 @@ export default function OpDrafts({ onNavigate }: Props) {
         </div>
       </div>
 
-      {activeDrafts.length === 0 ? (
+      {isLoading ? (
+        <div className="card">
+          <div className="card-body" style={{ textAlign: 'center', padding: '64px 24px' }}>
+            <div style={{ display: 'inline-block', width: 28, height: 28, border: '3px solid var(--ow2)', borderTopColor: 'var(--g4)', borderRadius: '50%', animation: 'spin 1s linear infinite', marginBottom: 16 }}></div>
+            <div style={{ fontWeight: 600, color: 'var(--ts)', fontSize: 14 }}>Loading drafts...</div>
+            <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+          </div>
+        </div>
+      ) : activeDrafts.length === 0 ? (
         <div className="card">
           <div className="card-body" style={{ textAlign: 'center', padding: '48px 24px' }}>
             <div style={{ fontSize: 48, marginBottom: 12 }}>📝</div>

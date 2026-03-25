@@ -4,6 +4,7 @@ import type { VerificationRecord, VerificationReview } from '../../mock/data'
 import { listDgmVerifications } from '../../api/verifications'
 import type { ApiVerification } from '../../api/types'
 import KpiCard from '../../components/KpiCard'
+import { getToken } from '../../api/client'
 
 function mapApiVerification(v: ApiVerification): VerificationRecord {
   return {
@@ -37,6 +38,10 @@ export default function CtrlDgmReview({ locationIds }: Props) {
 
   const [apiVerifs, setApiVerifs] = useState<VerificationRecord[]>([])
   useEffect(() => {
+    if (!getToken()) {
+      Promise.resolve().then(() => setApiVerifs([]))
+      return
+    }
     listDgmVerifications()
       .then(r => setApiVerifs(r.items.map(mapApiVerification).filter(v => locationIds.includes(v.locationId))))
       .catch(() => { /* fall back to mock */ })
@@ -77,9 +82,9 @@ export default function CtrlDgmReview({ locationIds }: Props) {
     } catch { /* ignore */ }
 
     // 2. Enforce Controller locations
-    const baseSource = apiVerifs.length > 0
-      ? apiVerifs
-      : VERIFICATIONS.filter(v => v.type === 'dgm' && locationIds.includes(v.locationId))
+    const baseSource = !getToken()
+      ? VERIFICATIONS.filter(v => v.type === 'dgm' && locationIds.includes(v.locationId))
+      : apiVerifs
 
     return baseSource
       .map(v => {

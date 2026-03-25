@@ -3,6 +3,7 @@ import { SUBMISSIONS, SUBMISSION_REVIEWS, saveSubmissionReview, getLocation, for
 import type { Submission, SubmissionReview } from '../../mock/data'
 import { getSubmission, approveSubmission, rejectSubmission } from '../../api/submissions'
 import KpiCard from '../../components/KpiCard'
+import { getToken } from '../../api/client'
 
 interface Props {
   ctx: Record<string, string>
@@ -101,6 +102,7 @@ export default function OpReadonly({ ctx, onNavigate }: Props) {
 
   useEffect(() => {
     if (!ctx.submissionId) return
+    if (!getToken()) return; // Demo Mode bypass
     getSubmission(ctx.submissionId)
       .then(s => {
         const forceUTC = (d?: string | null) => (d && !d.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(d) ? d + 'Z' : d);
@@ -146,7 +148,7 @@ export default function OpReadonly({ ctx, onNavigate }: Props) {
       .catch(() => { /* keep sessionStorage data */ })
   }, [ctx.submissionId])
 
-  const sub = apiSub ?? mockSub
+  const sub = !getToken() ? mockSub : apiSub
   const location = getLocation(ctx.locationId)
 
   const [localAction, setLocalAction] = useState<'approved' | 'rejected' | null>(null)
@@ -210,15 +212,17 @@ export default function OpReadonly({ ctx, onNavigate }: Props) {
     })
 
     // Call the API to persist the approval/rejection
-    try {
-      if (outcome === 'approved') {
-        await approveSubmission(sub.id)
-      } else {
-        const rejectNote = Object.values(sections).find(s => s.decision === 'reject')?.note ?? 'Rejected by controller.'
-        await rejectSubmission(sub.id, { reason: rejectNote })
+    if (getToken()) {
+      try {
+        if (outcome === 'approved') {
+          await approveSubmission(sub.id)
+        } else {
+          const rejectNote = Object.values(sections).find(s => s.decision === 'reject')?.note ?? 'Rejected by controller.'
+          await rejectSubmission(sub.id, { reason: rejectNote })
+        }
+      } catch (err) {
+        console.error('Failed to submit review', err)
       }
-    } catch {
-      // Fall back to local-only if API unreachable
     }
 
     saveSubmissionReview({

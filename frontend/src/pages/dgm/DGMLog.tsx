@@ -1,7 +1,9 @@
 import { useState, useMemo, useEffect } from 'react'
-import { VERIFICATIONS, LOCATIONS, getLocation, todayStr } from '../../mock/data'
+import { VERIFICATIONS, LOCATIONS, todayStr } from '../../mock/data'
 import type { VerificationRecord } from '../../mock/data'
 import { scheduleDgmVisit, listDgmVerifications } from '../../api/verifications'
+import { listLocations } from '../../api/locations'
+import { getToken } from '../../api/client'
 import type { ApiVerification } from '../../api/types'
 
 interface Props {
@@ -55,10 +57,27 @@ export default function DGMLog({ dgmName, locationIds, ctx, onNavigate }: Props)
   const [fetchError,   setFetchError]   = useState('')
 
   const [apiVerifs, setApiVerifs] = useState<VerificationRecord[]>([])
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [locs, setLocs] = useState<any[]>(() => !getToken() ? LOCATIONS : [])
+  
   useEffect(() => {
-    listDgmVerifications()
+    if (!getToken()) {
+      Promise.resolve().then(() => {
+        setApiVerifs([])
+      })
+      return
+    }
+    
+    const p1 = listDgmVerifications()
       .then(r => setApiVerifs(r.items.map(mapApiVerification).filter(v => locationIds.includes(v.locationId))))
-      .catch(() => { /* fall back to mock */ })
+      .catch(() => console.error('Failed to load real verifications'))
+      
+    const p2 = listLocations()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .then((res: any) => setLocs(Array.isArray(res) ? res : (res.items || [])))
+      .catch(() => console.warn('Failed to fetch real locations'))
+      
+    Promise.all([p1, p2])
   }, [locationIds, refresh])
 
   // ── Calendar grid ──────────────────────────────────────────────────────
@@ -81,7 +100,7 @@ export default function DGMLog({ dgmName, locationIds, ctx, onNavigate }: Props)
       if (saved) sessionUpdates = JSON.parse(saved)
     } catch { /* ignore */ }
 
-    const sourceVerifs = apiVerifs.length > 0 ? apiVerifs : VERIFICATIONS
+    const sourceVerifs = !getToken() ? VERIFICATIONS : apiVerifs
 
     // 2. Filter and merge statuses
     const completed = sourceVerifs
@@ -110,7 +129,7 @@ export default function DGMLog({ dgmName, locationIds, ctx, onNavigate }: Props)
       // ignore parse errors
     }
 
-    const sourceVerifs = apiVerifs.length > 0 ? apiVerifs : VERIFICATIONS
+    const sourceVerifs = !getToken() ? VERIFICATIONS : apiVerifs
 
     sourceVerifs.forEach(v => {
       if (v.type !== 'dgm' || v.locationId !== location) return
@@ -208,12 +227,18 @@ export default function DGMLog({ dgmName, locationIds, ctx, onNavigate }: Props)
 
     if (existing && existing.status === 'scheduled') {
       // Reschedule Flow
-      try {
-        // Mocking reschedule API
-        setFetchError('')
-      } catch {
-        setFetchError('Could not reach the server. Make sure the backend is running on port 8000.')
+      if (!getToken()) {
+        setTimeout(() => {
+          existing.date = selectedDate!
+          existing.notes = notes.trim()
+          existing.dayOfWeek = dow
+          existing.warningFlag = domWarning
+          setSaving(false)
+          setSubmitted({ ...existing, _isReschedule: true } as VerificationRecord & { _isReschedule?: boolean })
+        }, 400)
+        return
       }
+
       existing.date = selectedDate!
       existing.notes = notes.trim()
       existing.dayOfWeek = dow
@@ -235,6 +260,16 @@ export default function DGMLog({ dgmName, locationIds, ctx, onNavigate }: Props)
         warningFlag:  domWarning, 
         status:       'scheduled',
       }
+
+      if (!getToken()) {
+        setTimeout(() => {
+          VERIFICATIONS.push(rec)
+          setSaving(false)
+          setSubmitted(rec)
+        }, 400)
+        return
+      }
+
       try {
         const res = await scheduleDgmVisit({
           location_id: location,
@@ -251,9 +286,6 @@ export default function DGMLog({ dgmName, locationIds, ctx, onNavigate }: Props)
           setSaving(false);
           return;
         }
-        // Fallback: keep mock in sync
-        setFetchError('Could not reach the server. Make sure the backend is running on port 8000.')
-        VERIFICATIONS.push(rec)
       }
       setSaving(false)
       setSubmitted(rec)
@@ -266,7 +298,7 @@ export default function DGMLog({ dgmName, locationIds, ctx, onNavigate }: Props)
 
   // ── Success screen ─────────────────────────────────────────────────────
   if (submitted) {
-    const sLoc       = getLocation(submitted.locationId)
+    const sLoc       = locs.find(l => l.id === submitted.locationId)
     const sDateLabel = new Date(submitted.date + 'T12:00:00').toLocaleDateString('en-GB', {
       weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
     })
@@ -412,8 +444,9 @@ export default function DGMLog({ dgmName, locationIds, ctx, onNavigate }: Props)
                 onBlur={e  => { e.currentTarget.style.borderColor = 'var(--ow2)'; e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.07)' }}
               >
                 {locationIds.map(id => {
-                  const loc = LOCATIONS.find(l => l.id === id)
-                  return <option key={id} value={id}>{loc?.name ?? id}{loc?.cost_center ? ` (CC: ${loc.cost_center})` : ''}</option>
+                  const loc = locs.find(l => l.id === id)
+                  const cc = (loc as unknown as { costCenter?: string; cost_center?: string })?.costCenter || (loc as unknown as { costCenter?: string; cost_center?: string })?.cost_center
+                  return <option key={id} value={id}>{loc?.name ?? id}{cc ? ` (CC: ${cc})` : ''}</option>
                 })}
               </select>
             </div>

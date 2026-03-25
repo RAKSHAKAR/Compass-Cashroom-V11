@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { SUBMISSIONS, VERIFICATIONS, LOCATIONS, USERS, AUDIT_EVENTS, formatCurrency, todayStr, getLocation, IMPREST } from '../../mock/data'
 import { listSubmissions } from '../../api/submissions'
 import { listControllerVerifications, listDgmVerifications } from '../../api/verifications'
+import { getToken } from '../../api/client'
 import type { ApiSubmission, ApiVerification } from '../../api/types'
 import KpiCard from '../../components/KpiCard'
 
@@ -51,8 +52,9 @@ export default function AdmReports({ adminName }: Props) {
   const [dtlLocFilter, setDtlLocFilter] = useState('all')
   // apiSummary removed as KPIs are strictly calculated from the filtered table
   const [apiSubs, setApiSubs] = useState<ApiSubmission[] | null>(null)
-  const [apiVerifs, setApiVerifs] = useState<ApiVerification[] | null>(null)
   const [fetchError, setFetchError] = useState('')
+  const [apiVerifs, setApiVerifs] = useState<ApiVerification[] | null>(null)
+  const [, setLoading] = useState(false)
 
 
   const { start, end } = useMemo(() => {
@@ -66,6 +68,11 @@ export default function AdmReports({ adminName }: Props) {
       Promise.resolve().then(() => { setApiSubs(null); setApiVerifs(null); setFetchError(''); })
       return
     }
+    if (!getToken()) {
+      Promise.resolve().then(() => { setApiSubs(null); setApiVerifs(null); setLoading(false); });
+      return
+    }
+    Promise.resolve().then(() => setLoading(true));
     Promise.all([
       listSubmissions({ date_from: start, date_to: end, page_size: 5000 }).then(res => res.items).catch(() => null),
       listControllerVerifications({ date_from: start, date_to: end, page_size: 5000 }).then(res => res.items).catch(() => null),
@@ -90,9 +97,18 @@ export default function AdmReports({ adminName }: Props) {
   }, [start, end])
 
   const filteredSubs = useMemo(() => {
+    if (!getToken()) {
+      return SUBMISSIONS.filter(s => (!start||s.date>=start) && (!end||s.date<=end)).map(s => {
+        const loc = getLocation(s.locationId)
+        const expCash = Number(s.expectedCash || (loc as unknown as Record<string, number>)?.expected_cash || (loc as unknown as Record<string, number>)?.expectedCash || IMPREST)
+        const variance = s.totalCash - expCash
+        const variancePct = expCash > 0 ? (variance / expCash) * 100 : 0
+        return { ...s, expectedCash: expCash, variance, variancePct }
+      }).sort((a, b) => new Date(b.submittedAt || b.date).getTime() - new Date(a.submittedAt || a.date).getTime());
+    }
     if (apiSubs) {
       return apiSubs.map(s => {
-        const loc = LOCATIONS.find(l => l.id === s.location_id);
+        const loc = getLocation(s.location_id);
         const expCash = Number(s.expected_cash || (loc as unknown as Record<string, number>)?.expectedCash || (loc as unknown as Record<string, number>)?.expected_cash || IMPREST);
         const variance = s.total_cash - expCash;
         const variancePct = expCash > 0 ? (variance / expCash) * 100 : 0;
@@ -108,21 +124,19 @@ export default function AdmReports({ adminName }: Props) {
           variancePct: s.variance_pct ?? variancePct,
           approvedBy: s.approved_by || undefined,
           approvedByName: s.approved_by_name || undefined,
-          rejectionReason: s.rejection_reason || undefined
+          rejectionReason: s.rejection_reason || undefined,
+          submittedAt: s.submitted_at ?? s.created_at
         }
-      });
+      }).sort((a, b) => new Date(b.submittedAt || b.date).getTime() - new Date(a.submittedAt || a.date).getTime());
     }
-    return SUBMISSIONS.filter(s => (!start||s.date>=start) && (!end||s.date<=end)).map(s => {
-      const loc = getLocation(s.locationId)
-      const expCash = Number(s.expectedCash || (loc as unknown as Record<string, number>)?.expected_cash || (loc as unknown as Record<string, number>)?.expectedCash || IMPREST)
-      const variance = s.totalCash - expCash
-      const variancePct = expCash > 0 ? (variance / expCash) * 100 : 0
-      return { ...s, expectedCash: expCash, variance, variancePct }
-    });
+    return []
   }, [apiSubs, start, end])
 
   // All verifications in the date range (used for actor summary)
   const filteredVerifs = useMemo(() => {
+    if (!getToken()) {
+      return VERIFICATIONS.filter(v => (!start||v.date>=start) && (!end||v.date<=end)).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    }
     if (apiVerifs) {
       return apiVerifs.map(v => ({
         id: v.id,
@@ -131,9 +145,9 @@ export default function AdmReports({ adminName }: Props) {
         type: v.verification_type.toLowerCase() as 'controller'|'dgm',
         status: v.status.toLowerCase() as 'scheduled'|'completed'|'missed'|'cancelled',
         date: v.verification_date
-      }));
+      })).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     }
-    return VERIFICATIONS.filter(v => (!start||v.date>=start) && (!end||v.date<=end));
+    return []
   }, [apiVerifs, start, end])
 
   // Single Source of Truth: Filter the raw submission/verification data by location

@@ -1,9 +1,11 @@
 import { useState, useMemo, useEffect } from 'react'
-import { VERIFICATIONS, getLocation, LOCATIONS, formatCurrency, IMPREST } from '../../mock/data'
+import { VERIFICATIONS, LOCATIONS, formatCurrency, IMPREST } from '../../mock/data'
 import type { VerificationRecord } from '../../mock/data'
 import { listDgmVerifications } from '../../api/verifications'
-import type { ApiVerification } from '../../api/types'
+import { listLocations } from '../../api/locations'
 import KpiCard from '../../components/KpiCard'
+import type { ApiVerification } from '../../api/types'
+import { getToken } from '../../api/client'
 
 function mapApiVerif(v: ApiVerification): VerificationRecord {
   return {
@@ -66,13 +68,33 @@ export default function DGMHistory({ dgmName, locationIds, onNavigate }: Props) 
   const [filterVariance, setFilterVariance] = useState('all')
   const [page,           setPage]           = useState(0)
   const [apiVerifs,      setApiVerifs]      = useState<VerificationRecord[]>([])
+  const [isLoading,      setIsLoading]      = useState(!!getToken())
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [locs, setLocs] = useState<any[]>(() => !getToken() ? LOCATIONS : [])
 
   useEffect(() => {
-    Promise.all(locationIds.map(id =>
+    if (!getToken()) {
+      Promise.resolve().then(() => {
+        setApiVerifs([])
+        setIsLoading(false)
+      })
+      return
+    }
+    
+    Promise.resolve().then(() => setIsLoading(true))
+    
+    const p1 = Promise.all(locationIds.map(id =>
       listDgmVerifications({ location_id: id, page_size: 100 })
         .then(r => r.items.map(mapApiVerif))
-        .catch(() => [] as VerificationRecord[])
+        .catch(() => { console.error('Failed to load real verifications'); return [] as VerificationRecord[]; })
     )).then(arrays => setApiVerifs(arrays.flat()))
+
+    const p2 = listLocations()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .then((res: any) => setLocs(Array.isArray(res) ? res : (res.items || [])))
+      .catch(() => console.warn('Failed to fetch real locations'))
+
+    Promise.all([p1, p2]).finally(() => setIsLoading(false))
   }, [locationIds])
 
   // Derive effective filterMonth: reset to 'all' if filterYear changed and filterMonth is from a different year
@@ -102,7 +124,7 @@ export default function DGMHistory({ dgmName, locationIds, onNavigate }: Props) 
       // ignore parse errors
     }
 
-    const base = apiVerifs.length > 0 ? apiVerifs : mockVisits
+    const base = !getToken() ? mockVisits : apiVerifs
 
     return base
       .map(v => {
@@ -162,7 +184,7 @@ export default function DGMHistory({ dgmName, locationIds, onNavigate }: Props) 
   const fromEntry   = filtered.length === 0 ? 0 : pageClamped * PAGE_SIZE + 1
   const toEntry     = Math.min((pageClamped + 1) * PAGE_SIZE, filtered.length)
 
-  const myLocations = LOCATIONS.filter(l => locationIds.includes(l.id))
+  const myLocations = locs.filter(l => locationIds.includes(l.id))
 
   return (
     <div className="fade-up">
@@ -284,7 +306,13 @@ export default function DGMHistory({ dgmName, locationIds, onNavigate }: Props) 
         </div>
 
         <div className="card-body" style={{ padding: 0 }}>
-          {filtered.length === 0 ? (
+          {isLoading ? (
+            <div style={{ padding: '64px 32px', textAlign: 'center' }}>
+              <div style={{ display: 'inline-block', width: 28, height: 28, border: '3px solid var(--ow2)', borderTopColor: 'var(--g4)', borderRadius: '50%', animation: 'spin 1s linear infinite', marginBottom: 16 }}></div>
+              <div style={{ fontWeight: 600, color: 'var(--ts)', fontSize: 14 }}>Loading history...</div>
+              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+            </div>
+          ) : filtered.length === 0 ? (
             <div style={{ padding: '40px 32px', textAlign: 'center' }}>
               <div style={{ fontSize: 32, marginBottom: 10 }}>🔍</div>
               <div style={{ fontWeight: 600, color: 'var(--td)', marginBottom: 6 }}>
@@ -307,7 +335,7 @@ export default function DGMHistory({ dgmName, locationIds, onNavigate }: Props) 
                 </thead>
                 <tbody>
                   {pageRows.map(v => {
-                    const loc      = getLocation(v.locationId)
+                    const loc      = locs.find(l => l.id === v.locationId)
                     const variance = v.observedTotal !== undefined ? v.observedTotal - IMPREST : null
                     const pct      = variance !== null ? (variance / IMPREST) * 100 : null
                     const varCol   = pct !== null ? (Math.abs(pct) > 5 ? 'var(--red)' : Math.abs(pct) > 2 ? 'var(--amb)' : 'var(--g7)') : 'var(--wg)'
