@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
 import {
-  SUBMISSIONS, DRAFTS, formatCurrency, IMPREST, todayStr, EXPLAINED_MISSED,
+  SUBMISSIONS, DRAFTS, formatCurrency, IMPREST, todayStr, EXPLAINED_MISSED, LOCATIONS
 } from '../../mock/data'
 import type { Submission } from '../../mock/data'
 import { listSubmissions } from '../../api/submissions'
@@ -82,15 +82,18 @@ export default function OpStart({ locationIds, userName, onNavigate }: Props) {
   const [fetchError, setFetchError] = useState('')
   const PAGE_SIZE = 10
 
-  const [isLoading, setIsLoading] = useState(!!getToken())
+  const [isLoading, setIsLoading] = useState(!!getToken() && !localStorage.getItem('compass_demo_email'))
 
   // API-fetched submissions — overlay over mock data when available
   const [apiSubs, setApiSubs] = useState<Submission[]>([])
   useEffect(() => {
     if (!locationId) return
-    if (!getToken()) {
+    if (!getToken() || localStorage.getItem('compass_demo_email')) {
       Promise.resolve().then(() => {
         setApiSubs([]);
+        const mockLoc = LOCATIONS.find(l => l.id === locationId);
+        // Map mock properties to API structure safely
+        setLocation(mockLoc ? { ...mockLoc, expected_cash: mockLoc.expectedCash } as unknown as ApiLocation : null);
         setFetchError('');
         setIsLoading(false);
       });
@@ -116,7 +119,7 @@ export default function OpStart({ locationIds, userName, onNavigate }: Props) {
   const [apiDrafts, setApiDrafts] = useState<Array<ApiSubmission & { sections?: Record<string, number> }>>([])
   useEffect(() => {
     if (!locationId) return
-    if (!getToken()) {
+    if (!getToken() || localStorage.getItem('compass_demo_email')) {
       setApiDrafts([])
       return
     }
@@ -126,7 +129,7 @@ export default function OpStart({ locationIds, userName, onNavigate }: Props) {
   }, [locationId])
 
   const activeDrafts = useMemo(() => {
-    if (!getToken()) return DRAFTS
+    if (!getToken() || localStorage.getItem('compass_demo_email')) return DRAFTS
     return apiDrafts.map(d => ({
       id: d.id, locationId: d.location_id, date: d.submission_date,
       savedAt: d.updated_at || d.created_at, sections: d.sections || {},
@@ -138,7 +141,7 @@ export default function OpStart({ locationIds, userName, onNavigate }: Props) {
   useEffect(() => { setPage(0) }, [filter])
 
   const sourceSubs = useMemo(() => {
-    if (!getToken()) return SUBMISSIONS
+    if (!getToken() || localStorage.getItem('compass_demo_email')) return SUBMISSIONS
     return apiSubs
   }, [apiSubs])
 

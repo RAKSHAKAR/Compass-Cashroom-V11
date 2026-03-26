@@ -36,14 +36,21 @@ function pageNums(cur: number, total: number): (number | 'gap')[] {
 const DEFAULTS_INIT: { tolerancePct: string; slaHours: string } = { tolerancePct: '5', slaHours: '48' }
 
 export default function AdmLocations({ adminName }: Props) {
-  const [locs,     setLocs]     = useState<Location[]>(() => !getToken() ? [...LOCATIONS] : [])
+  const isDemo = !getToken() || !!localStorage.getItem('compass_demo_email');
+  const [locs,     setLocs]     = useState<Location[]>(() => isDemo ? [...LOCATIONS] : [])
+  const [isLoading, setIsLoading] = useState(!isDemo)
 
   useEffect(() => {
-    if (!getToken()) return; // Demo mode: stick with mock LOCATIONS, no API calls
+    if (isDemo) {
+      Promise.resolve().then(() => setIsLoading(false));
+      return;
+    }
+    Promise.resolve().then(() => setIsLoading(true));
     listLocations()
       .then(r => setLocs(r.items.map(mapApiLocation)))
       .catch(() => { setLocs([]) }) // Real users never fall back to mock
-  }, [])
+      .finally(() => setIsLoading(false));
+  }, [isDemo])
   const [mode,     setMode]     = useState<'add'|{id:string}|null>(null)
   const [form,     setForm]     = useState(EMPTY_FORM)
   const [errors,   setErrors]   = useState<Record<string,string>>({})
@@ -105,9 +112,9 @@ export default function AdmLocations({ adminName }: Props) {
   }
 
   function syncToStorage(updated: Location[]) {
-    if (getToken()) return; // CRITICAL: Prevent real users from overwriting mock data
+    if (getToken() && !localStorage.getItem('compass_demo_email')) return; // CRITICAL: Prevent real users from overwriting mock data
     LOCATIONS.splice(0, LOCATIONS.length, ...updated)
-    saveStored('compass_locations', LOCATIONS)
+    saveStored('compass_locations_v3', LOCATIONS)
   }
 
   async function handleSave() {
@@ -122,7 +129,7 @@ export default function AdmLocations({ adminName }: Props) {
         slaHours: Number(defaults.slaHours),
         active: true,
       }
-      if (getToken()) {
+      if (getToken() && !localStorage.getItem('compass_demo_email')) {
         try {
           const created = await createLocation({ id: newLoc.id, name: newLoc.name, city: '', expected_cash: newLoc.expectedCash, tolerance_pct: newLoc.tolerancePct })
           newLoc.id = created.id
@@ -136,7 +143,7 @@ export default function AdmLocations({ adminName }: Props) {
       })
       setSaved(`Location "${newLoc.name}" added.`)
     } else if (mode && typeof mode === 'object') {
-      if (getToken()) {
+      if (getToken() && !localStorage.getItem('compass_demo_email')) {
         try {
           await updateLocation(mode.id, { name: form.name.trim(), expected_cash: Number(form.expectedCash), tolerance_pct: Number(form.tolerancePct) })
         } catch (err) { console.error('Failed to update location', err) }
@@ -156,7 +163,7 @@ export default function AdmLocations({ adminName }: Props) {
   }
 
   async function handleDeactivate(id: string) {
-    if (getToken()) {
+    if (getToken() && !localStorage.getItem('compass_demo_email')) {
       try { await deactivateLocation(id) } catch (err) { console.error(err) }
     }
     setLocs(prev => {
@@ -170,7 +177,7 @@ export default function AdmLocations({ adminName }: Props) {
   }
 
   async function handleReactivate(id: string) {
-    if (getToken()) {
+    if (getToken() && !localStorage.getItem('compass_demo_email')) {
       try { await reactivateLocation(id) } catch (err) { console.error(err) }
     }
     setLocs(prev => {
@@ -268,6 +275,15 @@ export default function AdmLocations({ adminName }: Props) {
               </tr>
             </thead>
             <tbody>
+              {isLoading && (
+                <tr>
+                  <td colSpan={6} style={{ textAlign: 'center', padding: '48px 24px' }}>
+                    <div style={{ display: 'inline-block', width: 28, height: 28, border: '3px solid var(--ow2)', borderTopColor: 'var(--g4)', borderRadius: '50%', animation: 'spin 1s linear infinite', marginBottom: 16 }}></div>
+                    <div style={{ fontWeight: 600, color: 'var(--ts)', fontSize: 14 }}>Loading locations...</div>
+                    <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+                  </td>
+                </tr>
+              )}
               {/* Add row */}
               {mode === 'add' && (
                 <>
