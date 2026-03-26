@@ -62,7 +62,7 @@ export default function AdmUsers({ adminName }: Props) {
   const [ctrlGrants, setCtrlGrants] = useState<Record<string, AccessGrant>>(() => readGrants('controller'))
 
   useEffect(() => {
-    if (!getToken()) {
+    if (!getToken() || localStorage.getItem('compass_demo_email')) {
       // Demo Mode Bypass: Load strictly from local mocks, no API calls
       Promise.resolve().then(() => {
         setUsers([...USERS])
@@ -149,7 +149,7 @@ export default function AdmUsers({ adminName }: Props) {
     const existingGrant = getGrants(type)[u.id]
     let grantId = existingGrant?.grantId
     
-    if (getToken()) {
+    if (getToken() && !localStorage.getItem('compass_demo_email')) {
       try {
         if (grantId) {
           await updateGrantNote(grantId, grantNote.trim())
@@ -172,7 +172,7 @@ export default function AdmUsers({ adminName }: Props) {
 
   async function revokeGrant(u: User, type: AccessType) {
     const existing = getGrants(type)[u.id]
-    if (existing?.grantId && getToken()) {
+    if (existing?.grantId && getToken() && !localStorage.getItem('compass_demo_email')) {
       try { await revokeAccess(existing.grantId) } catch (err) { console.error(err) }
     }
     const updated = { ...getGrants(type) }
@@ -242,7 +242,7 @@ export default function AdmUsers({ adminName }: Props) {
     const e = validate(); if (Object.keys(e).length) { setErrors(e); return }
     if (mode==='add') {
       const nu: User = { id:`U${Date.now()}`, name:form.name.trim(), email:form.email.trim(), role:form.role, locationIds:form.locationIds, active:true }
-      if (getToken()) {
+      if (getToken() && !localStorage.getItem('compass_demo_email')) {
         try {
           const created = await createUser({ name:nu.name, email:nu.email, password:form.password, role:roleToApiRole(nu.role), location_ids:nu.locationIds })
           nu.id = created.id
@@ -280,7 +280,7 @@ export default function AdmUsers({ adminName }: Props) {
 
   async function toggleActive(id: string) {
     const user = users.find(u => u.id === id)
-    if (getToken()) {
+    if (getToken() && !localStorage.getItem('compass_demo_email')) {
       try {
         if (user?.active) await deactivateUser(id)
         else              await reactivateUser(id)
@@ -294,7 +294,7 @@ export default function AdmUsers({ adminName }: Props) {
   async function handlePurge() {
     setPurging(true)
 
-    if (!getToken()) {
+    if (!getToken() || localStorage.getItem('compass_demo_email')) {
       setTimeout(() => {
         const adminsOnly = users.filter(u => u.role === 'admin')
         setUsers(adminsOnly)
@@ -321,6 +321,12 @@ export default function AdmUsers({ adminName }: Props) {
   }
 
   async function handleSysSave() {
+    if (localStorage.getItem('compass_demo_email')) {
+      localStorage.setItem('mockSystemConfig', JSON.stringify(sys))
+      setSysSaved(true)
+      setTimeout(() => setSysSaved(false), 3000)
+      return
+    }
     try {
       await updateConfig({
         dow_lookback_weeks: sys.dowLookbackWeeks,

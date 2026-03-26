@@ -132,12 +132,12 @@ export default function AdmAudit({ adminName }: Props) {
   const [showExportMenu, setShowExportMenu] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const [apiEvents, setApiEvents] = useState<AuditEvent[]>([])
-  const [isLoading, setIsLoading] = useState(!!getToken())
+  const [isLoading, setIsLoading] = useState(!!getToken() && !localStorage.getItem('compass_demo_email'))
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [locs, setLocs] = useState<any[]>(() => !getToken() ? LOCATIONS : [])
+  const [locs, setLocs] = useState<any[]>(() => (!getToken() || localStorage.getItem('compass_demo_email')) ? LOCATIONS : [])
 
   useEffect(() => {
-    if (!getToken()) {
+    if (!getToken() || localStorage.getItem('compass_demo_email')) {
       Promise.resolve().then(() => {
         setApiEvents([])
         setIsLoading(false)
@@ -164,7 +164,7 @@ export default function AdmAudit({ adminName }: Props) {
     Promise.all([p1, p2]).finally(() => setIsLoading(false))
   }, [])
 
-  const sourceEvents = !getToken() ? AUDIT_EVENTS : apiEvents
+  const sourceEvents = (!getToken() || localStorage.getItem('compass_demo_email')) ? AUDIT_EVENTS : apiEvents
 
   // Event types: static from known EVENT_LABELS (don't derive from data)
   const EVENT_TYPES = Object.keys(EVENT_LABELS).sort((a, b) =>
