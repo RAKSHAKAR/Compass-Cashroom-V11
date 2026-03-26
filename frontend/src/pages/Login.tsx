@@ -54,20 +54,16 @@ export default function Login({ onLogin }: LoginProps) {
     setError('')
 
     const userEmail = email.trim().toLowerCase()
-    const DEMO_EMAILS = [
-      'admin@compassusa.com', 
-      'operator@compassusa.com', 
-      'controller@compassusa.com', 
-      'dgm@compassusa.com', 
-      'rc@compassusa.com'
-    ]
-
-    const isDemoAccount = DEMO_EMAILS.includes(userEmail)
+    const isDemoAccount = userEmail.endsWith('@compassusa.com')
 
     if (isDemoAccount) {
       if (password !== DEMO_PASSWORD) { setError('Incorrect password.'); setLoading(false); return }
       const user = USERS.find(u => u.email.toLowerCase() === userEmail)
       if (!user) { setError('No account found for this email address.'); setLoading(false); return }
+      
+      // Store demo session locally to prevent logout on refresh
+      localStorage.setItem('compass_demo_email', userEmail)
+      
       onLogin(user.id, user.role as Role, user.name, user.locationIds, true)
       setLoading(false)
       return
@@ -99,11 +95,7 @@ export default function Login({ onLogin }: LoginProps) {
     setFpLoading(true)
     setFpError('')
 
-    const DEMO_EMAILS = [
-      'admin@compassusa.com', 'operator@compassusa.com', 
-      'controller@compassusa.com', 'dgm@compassusa.com', 'rc@compassusa.com'
-    ]
-    if (DEMO_EMAILS.includes(fpEmail.trim().toLowerCase())) {
+    if (fpEmail.trim().toLowerCase().endsWith('@compassusa.com')) {
       setTimeout(() => {
         setFpError('Password reset is not available in demo mode.')
         setFpLoading(false)

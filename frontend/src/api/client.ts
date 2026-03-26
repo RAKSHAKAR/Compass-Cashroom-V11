@@ -27,6 +27,12 @@ export class ApiError extends Error {
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  // STRICT DEMO MODE BLOCK: Never call backend if demo user
+  if (localStorage.getItem('compass_demo_email')) {
+    console.warn(`[Demo Mode] Blocked outbound API call to ${path}`)
+    throw new TypeError('Failed to fetch') // Simulates network error for UI to use local mock data
+  }
+
   const token = getToken()
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (token) headers['Authorization'] = `Bearer ${token}`

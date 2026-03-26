@@ -39,6 +39,9 @@ We maintain a decoupled architecture. You will need to run the backend and front
 
 3. **Database Setup & Migrations:**
    ```powershell
+   # Delete the existing out-of-sync database
+   Remove-Item cashroom.db -ErrorAction SilentlyContinue
+
    # Read migration scripts and update the database schema to the latest version ("head")
    alembic upgrade head
 
@@ -51,6 +54,7 @@ We maintain a decoupled architecture. You will need to run the backend and front
    # Inject the foundational system data (admin accounts, role definitions) required for the app to function
    python seed.py
    ```
+
 
 4. **Run the Server:**
    ```powershell

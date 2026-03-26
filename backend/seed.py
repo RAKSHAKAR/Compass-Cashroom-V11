@@ -191,7 +191,7 @@ def generate_history(db: Session):
                 submission_date=curr_date,
                 total_cash=actual,
                 status=status,
-                source=SubmissionSource.MANUAL,
+                source=SubmissionSource.FORM,
                 created_at=datetime.combine(curr_date, datetime.min.time().replace(hour=17)).replace(tzinfo=timezone.utc)
             )
             db.add(sub)

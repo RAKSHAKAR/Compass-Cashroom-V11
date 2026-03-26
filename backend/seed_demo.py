@@ -218,8 +218,8 @@ def seed():
                 for lid in u.location_ids:
                     loc_index.setdefault(lid, {})["ctrl"] = u
 
-        # Fallback controller (Chris Controller) for any unmapped location
-        fallback_ctrl = db.query(User).filter_by(email="controller@compass.com").first()
+        # Fallback controller (Demo Controller) for any unmapped location
+        fallback_ctrl = db.query(User).filter_by(email="controller@compassusa.com").first()
 
         all_locs = {l.id: l for l in db.query(Location).all()}
 
@@ -360,7 +360,7 @@ def seed():
                 ))
 
         # Config change audit
-        admin = db.query(User).filter_by(email="admin@compass.com").first()
+        admin = db.query(User).filter_by(email="admin@compassusa.com").first()
         if admin:
             for days_ago in [45, 20, 5]:
                 audit_batch.append(make_audit(

@@ -387,7 +387,7 @@ function AppShell({ auth, onLogout }: { auth: AuthState; onLogout: () => void })
             fontSize: 13, color: 'var(--red)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
             flexShrink: 0, fontWeight: 500
           }}>
-            <span>⚠️</span> Could not reach the server. Make sure the backend is running on port 8000. {auth.isOffline ? '(Running locally)' : ''}
+            <span>⚠️</span> Could not reach the server. Make sure the backend is running on port 8000. (Running locally)
           </div>
         )}
 
@@ -491,7 +491,26 @@ export default function App() {
   }
 
   useEffect(() => {
-    // 1. Check if we even have a token before pinging the backend
+    // 1. Check if Demo User is logged in via Session state
+    const demoEmail = localStorage.getItem('compass_demo_email')
+    if (demoEmail) {
+      const u = USERS.find(x => x.email.toLowerCase() === demoEmail)
+      if (u) {
+        setTimeout(() => {
+          setAuth({
+            userId: u.id,
+            role: apiRoleToRole(u.role.toUpperCase() as ApiRole),
+            name: u.name,
+            locationIds: u.locationIds,
+            isOffline: true
+          })
+          setLoading(false)
+        }, 0)
+        return
+      }
+    }
+
+    // 2. Check if we even have a token before pinging the backend
     const token = getToken()
     if (!token) {
       setTimeout(() => setLoading(false), 0)
@@ -546,6 +565,7 @@ export default function App() {
   function handleLogout() {
     if (timerRef.current) clearTimeout(timerRef.current)
     logout()
+    localStorage.removeItem('compass_demo_email')
     sessionStorage.removeItem('compass_real_locations')
     sessionStorage.removeItem('compass_real_users')
     setAuth(null)
