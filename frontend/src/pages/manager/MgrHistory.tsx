@@ -106,10 +106,10 @@ export default function MgrHistory({ managerName, locationIds, onNavigate }: Pro
     ? allActioned
     : allActioned.filter(s => s.status === statusFilter)
 
-  const approvedCount = allActioned.filter(s => s.status === 'approved').length
-  const rejectedCount = allActioned.filter(s => s.status === 'rejected').length
-  const avgVariance   = allActioned.length > 0
-    ? allActioned.reduce((sum, s) => sum + Math.abs(s.variancePct), 0) / allActioned.length
+  const approvedCount = rows.filter(s => s.status === 'approved').length
+  const rejectedCount = rows.filter(s => s.status === 'rejected').length
+  const avgVariance   = rows.length > 0
+    ? rows.reduce((sum, s) => sum + Math.abs(s.variancePct), 0) / rows.length
     : 0
 
   const dateRangeLabel = dateRange === '7d' ? 'last 7 days' : dateRange === '30d' ? 'last 30 days' : 'all time'

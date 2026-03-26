@@ -160,23 +160,29 @@ export default function DGMHistory({ dgmName, locationIds, onNavigate }: Props) 
 
   const filtered = useMemo(() =>
     allVisits.filter(v => {
+      const loc = locs.find(l => l.id === v.locationId)
+      const expCash = Number(loc?.expected_cash || loc?.expectedCash || IMPREST)
       const my = v.monthYear ?? v.date.slice(0, 7)
       const yr = my.slice(0, 4)
+
       if (filterLoc      !== 'all' && v.locationId !== filterLoc)  return false
       if (filterYear     !== 'all' && yr            !== filterYear)  return false
       if (effectiveFilterMonth !== 'all' && my !== effectiveFilterMonth) return false
       if (filterStatus   !== 'all' && (v.status ?? 'completed') !== filterStatus) return false
+      
       if (filterVariance !== 'all') {
         if (v.observedTotal === undefined) return filterVariance === 'none'
-        const pct = Math.abs((v.observedTotal - IMPREST) / IMPREST) * 100
+        const variance = v.observedTotal - expCash
+        const pct = expCash > 0 ? Math.abs(variance / expCash) * 100 : 0
+        
         if (filterVariance === 'ok'   && pct  > 2)  return false
         if (filterVariance === 'warn' && (pct <= 2 || pct > 5)) return false
         if (filterVariance === 'over' && pct  <= 5) return false
-        if (filterVariance === 'none' && v.observedTotal !== undefined) return false
+        if (filterVariance === 'none') return false
       }
       return true
     }),
-  [allVisits, filterLoc, filterYear, effectiveFilterMonth, filterStatus, filterVariance])
+  [allVisits, filterLoc, filterYear, effectiveFilterMonth, filterStatus, filterVariance, locs])
 
   const totalPages  = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const pageClamped = Math.min(page, totalPages - 1)

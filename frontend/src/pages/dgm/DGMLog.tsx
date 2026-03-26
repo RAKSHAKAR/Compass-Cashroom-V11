@@ -233,6 +233,10 @@ export default function DGMLog({ dgmName, locationIds, ctx, onNavigate }: Props)
           existing.notes = notes.trim()
           existing.dayOfWeek = dow
           existing.warningFlag = domWarning
+          // Update the mock reference directly
+          const idx = VERIFICATIONS.findIndex(v => v.id === existing.id)
+          if (idx !== -1) VERIFICATIONS[idx] = { ...existing }
+          
           setSaving(false)
           setSubmitted({ ...existing, _isReschedule: true } as VerificationRecord & { _isReschedule?: boolean })
         }, 400)

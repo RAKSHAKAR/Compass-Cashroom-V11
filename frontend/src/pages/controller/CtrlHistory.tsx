@@ -2,7 +2,8 @@ import { useState, useMemo, useEffect } from 'react'
 import { VERIFICATIONS, LOCATIONS, getLocation, formatCurrency, IMPREST } from '../../mock/data'
 import type { VerificationRecord } from '../../mock/data'
 import { listControllerVerifications } from '../../api/verifications'
-import type { ApiVerification } from '../../api/types'
+import { listLocations } from '../../api/locations'
+import type { ApiVerification, ApiLocation } from '../../api/types'
 import KpiCard from '../../components/KpiCard'
 import { getToken } from '../../api/client'
 
@@ -46,18 +47,22 @@ export default function CtrlHistory({ controllerName, locationIds, onNavigate }:
   const [locationFilter, setLocationFilter] = useState('all')
   const [page,           setPage]           = useState(0)
   const [apiVerifs,      setApiVerifs]      = useState<VerificationRecord[]>([])
+  const [apiLocations,   setApiLocations]   = useState<ApiLocation[]>([])
 
   useEffect(() => {
     if (!getToken()) {
-      Promise.resolve().then(() => setApiVerifs([]))
+      Promise.resolve().then(() => { setApiVerifs([]); setApiLocations([]) })
       return
     }
+    listLocations().then(setApiLocations).catch(() => {})
     Promise.all(locationIds.map(id =>
       listControllerVerifications({ location_id: id, status: 'completed', page_size: 100 })
         .then(r => r.items.map(mapApiVerif))
         .catch(() => [] as VerificationRecord[])
     )).then(arrays => setApiVerifs(arrays.flat()))
   }, [locationIds])
+
+  const getLoc = (id: string) => apiLocations.find(l => l.id === id) || LOCATIONS.find(l => l.id === id) || getLocation(id)
 
   // All controller verifications for this controller's locations, newest-first
   const mockRecords = useMemo(() =>
@@ -71,9 +76,13 @@ export default function CtrlHistory({ controllerName, locationIds, onNavigate }:
       .sort((a, b) => b.date.localeCompare(a.date)),
   [apiVerifs, mockRecords])
 
-  const rows = locationFilter === 'all'
-    ? allRecords
-    : allRecords.filter(v => v.locationId === locationFilter)
+  const locationRecords = useMemo(() => {
+    return locationFilter === 'all'
+      ? allRecords
+      : allRecords.filter(v => v.locationId === locationFilter)
+  }, [allRecords, locationFilter])
+
+  const rows = locationRecords
 
   // ── Pagination ────────────────────────────────────────────────────────
   const totalPages  = Math.max(1, Math.ceil(rows.length / PAGE_SIZE))
@@ -84,24 +93,38 @@ export default function CtrlHistory({ controllerName, locationIds, onNavigate }:
 
   // ── KPIs ──────────────────────────────────────────────────────────────
   const thisMonthKey   = new Date().toISOString().slice(0, 7)
-  const thisMonthCount = allRecords.filter(v => v.date.startsWith(thisMonthKey)).length
-  const warningCount   = allRecords.filter(v => v.warningFlag).length
+  const thisMonthCount = locationRecords.filter(v => v.date.startsWith(thisMonthKey)).length
+  const warningCount   = locationRecords.filter(v => v.warningFlag).length
 
-  // Average gap (days) between consecutive visits across all locations
+  // Average gap (days) isolated per location
   const avgGap = useMemo(() => {
-    if (allRecords.length < 2) return null
-    const sorted = [...allRecords].sort((a, b) => a.date.localeCompare(b.date))
-    let total = 0
-    for (let i = 1; i < sorted.length; i++) {
-      total += (new Date(sorted[i].date).getTime() - new Date(sorted[i - 1].date).getTime()) / 86400000
+    if (locationRecords.length < 2) return null
+    
+    const byLoc: Record<string, VerificationRecord[]> = {}
+    locationRecords.forEach(v => {
+      if (!byLoc[v.locationId]) byLoc[v.locationId] = []
+      byLoc[v.locationId].push(v)
+    })
+    
+    let totalGaps = 0
+    let gapCount = 0
+    
+    for (const locId in byLoc) {
+      const locVisits = byLoc[locId].sort((a, b) => a.date.localeCompare(b.date))
+      for (let i = 1; i < locVisits.length; i++) {
+        totalGaps += (new Date(locVisits[i].date).getTime() - new Date(locVisits[i - 1].date).getTime()) / 86400000
+        gapCount++
+      }
     }
-    return Math.round(total / (sorted.length - 1))
-  }, [allRecords])
+    return gapCount > 0 ? Math.round(totalGaps / gapCount) : null
+  }, [locationRecords])
 
-  // Locations coverage: how many of my locations have been visited this month
+  // Locations coverage: how many of the filtered locations have been visited this month
+  const filteredLocIds = locationFilter === 'all' ? locationIds : [locationFilter]
   const visitedThisMonth = new Set(
-    allRecords.filter(v => v.date.startsWith(thisMonthKey)).map(v => v.locationId)
+    locationRecords.filter(v => v.date.startsWith(thisMonthKey)).map(v => v.locationId)
   ).size
+  const maxLocations = filteredLocIds.length
 
   return (
     <div className="fade-up">
@@ -136,7 +159,7 @@ export default function CtrlHistory({ controllerName, locationIds, onNavigate }:
         <KpiCard
           label="This Month"
           value={thisMonthCount}
-          sub={`${visitedThisMonth}/${locationIds.length} locations visited`}
+          sub={`${visitedThisMonth}/${maxLocations} locations visited`}
           tooltip={{
             what: "Number of verifications completed in the current calendar month, and how many unique locations were visited.",
             how: "Filters verifications by the current month and year. The sub-count shows distinct location coverage.",
@@ -190,7 +213,7 @@ export default function CtrlHistory({ controllerName, locationIds, onNavigate }:
         >
           <option value="all">📍 All Locations ({locationIds.length})</option>
           {locationIds.map(id => {
-            const loc = LOCATIONS.find(l => l.id === id)
+            const loc = getLoc(id)
             return <option key={id} value={id}>{loc?.name ?? id}</option>
           })}
         </select>
@@ -233,7 +256,7 @@ export default function CtrlHistory({ controllerName, locationIds, onNavigate }:
               </thead>
               <tbody>
                 {pageRows.map(v => {
-                  const loc      = getLocation(v.locationId)
+                  const loc      = getLoc(v.locationId)
                   const expCash  = Number((loc as unknown as Record<string, number>)?.expected_cash || (loc as unknown as Record<string, number>)?.expectedCash || IMPREST)
                   const variance = v.observedTotal !== undefined ? v.observedTotal - expCash : null
                   const pct      = variance !== null && expCash > 0 ? (variance / expCash) * 100 : null

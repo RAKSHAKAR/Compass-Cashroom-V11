@@ -312,6 +312,13 @@ export default function CtrlDashboard({ controllerName, locationIds, ctx, onNavi
     return r
   }, [allRecords, locationFilter, statusFilter])
 
+  // ── Base Records for KPIs and Counts (Location-aware) ───────────────────
+  const locationRecords = useMemo(() => {
+    return locationFilter === 'all' 
+      ? allRecords.filter(v => v.status !== 'cancelled') 
+      : allRecords.filter(v => v.locationId === locationFilter && v.status !== 'cancelled')
+  }, [allRecords, locationFilter])
+
   // ── Pagination ──────────────────────────────────────────────────────────
   const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE))
   const pageRows   = rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
@@ -320,33 +327,43 @@ export default function CtrlDashboard({ controllerName, locationIds, ctx, onNavi
 
   // ── KPIs ────────────────────────────────────────────────────────────────
   const thisMonthKey       = new Date().toISOString().slice(0, 7)
-  const completedThisMonth = allRecords.filter(v => v.status === 'completed' && v.date.startsWith(thisMonthKey)).length
-  const scheduledCount     = allRecords.filter(v => v.status === 'scheduled').length
-  const missedCount        = allRecords.filter(v => v.status === 'missed').length
+  const completedThisMonth = locationRecords.filter(v => v.status === 'completed' && v.date.startsWith(thisMonthKey)).length
+  const scheduledCount     = locationRecords.filter(v => v.status === 'scheduled').length
+  const missedCount        = locationRecords.filter(v => v.status === 'missed').length
 
   const avgGap = useMemo(() => {
-    const done = allRecords.filter(v => v.status === 'completed')
+    const done = locationRecords.filter(v => v.status === 'completed')
     if (done.length < 2) return null
-    const sorted = [...done].sort((a, b) => a.date.localeCompare(b.date))
-    let total = 0
-    for (let i = 1; i < sorted.length; i++) {
-      total += (new Date(sorted[i].date).getTime() - new Date(sorted[i - 1].date).getTime()) / 86400000
+    
+    // Group gaps strictly by their unique location
+    const byLoc: Record<string, VerificationRecord[]> = {}
+    done.forEach(v => {
+       if (!byLoc[v.locationId]) byLoc[v.locationId] = []
+       byLoc[v.locationId].push(v)
+    })
+    
+    let totalGaps = 0
+    let gapCount = 0
+    
+    for (const locId in byLoc) {
+       const locVisits = byLoc[locId].sort((a, b) => a.date.localeCompare(b.date))
+       for (let i = 1; i < locVisits.length; i++) {
+          totalGaps += (new Date(locVisits[i].date).getTime() - new Date(locVisits[i - 1].date).getTime()) / 86400000
+          gapCount++
+       }
     }
-    return Math.round(total / (sorted.length - 1))
-  }, [allRecords])
+    return gapCount > 0 ? Math.round(totalGaps / gapCount) : null
+  }, [locationRecords])
 
   // ── Filter chip counts (location-aware) ─────────────────────────────────
   const counts = useMemo(() => {
-    const base = locationFilter === 'all' 
-      ? allRecords.filter(v => v.status !== 'cancelled') 
-      : allRecords.filter(v => v.locationId === locationFilter && v.status !== 'cancelled')
     return {
-      all:       base.length,
-      scheduled: base.filter(v => v.status === 'scheduled').length,
-      completed: base.filter(v => v.status === 'completed').length,
-      missed:    base.filter(v => v.status === 'missed').length,
+      all:       locationRecords.length,
+      scheduled: locationRecords.filter(v => v.status === 'scheduled').length,
+      completed: locationRecords.filter(v => v.status === 'completed').length,
+      missed:    locationRecords.filter(v => v.status === 'missed').length,
     }
-  }, [allRecords, locationFilter])
+  }, [locationRecords])
 
   // ── DOW warning for the currently-expanded complete row ──────────────────
   const dowWarning = useMemo(() => {
@@ -395,8 +412,8 @@ export default function CtrlDashboard({ controllerName, locationIds, ctx, onNavi
       e.approval = "The submission must be approved before confirming visit completion. Please open the form using 'View' and approve it first."
     }
 
-    // Fallback to 0 so we don't throw NaN validation errors when the input is hidden
-    const obs = Number(cObs) || 0 
+    // Pass undefined instead of 0 if field is blank so backend pulls real operator submission vs blindly zeroing out.
+    const obs = cObs !== '' ? Number(cObs) : undefined
 
     if (dowWarning && !cWarnReason)       e.warn = 'Please select a reason to proceed.'
     if (!cSig)                            e.sig  = 'Please sign before confirming.'
@@ -456,6 +473,8 @@ export default function CtrlDashboard({ controllerName, locationIds, ctx, onNavi
 
   const todayStr = new Date().toISOString().split('T')[0]
 
+  const getLoc = (id: string) => apiLocations.find(l => l.id === id) || getLocation(id)
+
   return (
     <div className="fade-up">
 
@@ -466,7 +485,7 @@ export default function CtrlDashboard({ controllerName, locationIds, ctx, onNavi
           <p style={{ color: 'var(--ts)', fontSize: 13 }}>
             Visit schedule &amp; history across your {locationIds.length} {locationIds.length === 1 ? 'location' : 'locations'}
             {locationIds.length === 1
-              ? ` · ${apiLocations.find(l => l.id === locationIds[0])?.name ?? getLocation(locationIds[0])?.name ?? locationIds[0]}`
+              ? ` · ${getLoc(locationIds[0])?.name ?? locationIds[0]}`
               : ` · ${controllerName}`
             }
           </p>
@@ -573,7 +592,7 @@ export default function CtrlDashboard({ controllerName, locationIds, ctx, onNavi
         >
           <option value="all" style={{ background: '#fff', color: 'var(--td)' }}>📍 All Locations ({locationIds.length})</option>
           {locationIds.map(id => {
-            const loc = getLocation(id)
+            const loc = getLoc(id)
             const cc = (loc as unknown as { costCenter?: string; cost_center?: string })?.costCenter || (loc as unknown as { costCenter?: string; cost_center?: string })?.cost_center || 'N/A'
             return <option key={id} value={id} style={{ background: '#fff', color: 'var(--td)' }}>{loc?.name ?? id} (CC: {cc})</option>
           })}
@@ -629,7 +648,7 @@ export default function CtrlDashboard({ controllerName, locationIds, ctx, onNavi
           <span className="card-sub">
             {rows.length} record{rows.length !== 1 ? 's' : ''}
             {statusFilter   !== 'all' ? ` · ${statusFilter}` : ''}
-            {locationFilter !== 'all' ? ` · ${apiLocations.find(l => l.id === locationFilter)?.name ?? getLocation(locationFilter)?.name ?? locationFilter}` : ''}
+            {locationFilter !== 'all' ? ` · ${getLoc(locationFilter)?.name ?? locationFilter}` : ''}
             {rows.length > PAGE_SIZE && ` · page ${page + 1} of ${totalPages}`}
           </span>
         </div>
@@ -679,11 +698,11 @@ export default function CtrlDashboard({ controllerName, locationIds, ctx, onNavi
               </thead>
               <tbody>
                 {pageRows.map(v => {
-                  const loc        = getLocation(v.locationId)
+                  const loc        = getLoc(v.locationId)
                   const isFuture   = v.date > todayStr
                   const isExpanded = expandedId === v.id
                   const expCash    = Number((loc as unknown as Record<string, number>)?.expected_cash || (loc as unknown as Record<string, number>)?.expectedCash || IMPREST)
-                  const effObsTotal = (v.observedTotal && v.observedTotal > 0) ? v.observedTotal : getSubTotalCash(v.locationId, v.date)
+                  const effObsTotal = (v.observedTotal !== undefined && v.observedTotal !== null) ? v.observedTotal : getSubTotalCash(v.locationId, v.date)
                   const variance   = effObsTotal !== null && effObsTotal !== undefined ? effObsTotal - expCash : null
                   const pct        = variance !== null && expCash > 0 ? (variance / expCash) * 100 : null
                   const varCol     = pct !== null

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { SUBMISSIONS, SUBMISSION_REVIEWS, saveSubmissionReview, getLocation, formatCurrency, todayStr } from '../../mock/data'
+import { SUBMISSIONS, SUBMISSION_REVIEWS, saveSubmissionReview, getLocation, formatCurrency, todayStr, IMPREST } from '../../mock/data'
 import type { Submission, SubmissionReview } from '../../mock/data'
 import { getSubmission, approveSubmission, rejectSubmission } from '../../api/submissions'
 import KpiCard from '../../components/KpiCard'
@@ -239,8 +239,8 @@ export default function OpReadonly({ ctx, onNavigate }: Props) {
 
     if (ctx.fromPanel === 'ctrl-dashboard') {
       // Re-open the completion panel so the controller can click Confirm Completion
-      const vid = ctx.visitId || ctx.verificationId
-      onNavigate('ctrl-dashboard', vid ? { expandVisitId: vid, expandAction: 'complete' } : {})
+      const vid = ctx.visitId || ctx.verificationId || ctx.expandVisitId
+      onNavigate('ctrl-dashboard', vid ? { expandVisitId: vid, expandAction: ctx.expandAction || 'complete' } : {})
       return
     }
     if (ctx.fromPanel === 'dgm-dash') {
@@ -311,9 +311,9 @@ export default function OpReadonly({ ctx, onNavigate }: Props) {
   const s = sub.sections
   const holdoverAmt = (s as unknown as Record<string, number>).holdover || 0
   const coinTransitAmt = (s as unknown as Record<string, number>).coinTransit || 0
-  const calcTotalCash = s.A + s.B + s.C + s.D + s.E + s.F + s.G - holdoverAmt
-  const calcTotalFund = calcTotalCash + s.H + s.I + coinTransitAmt
-  const calcExpectedCash = sub.expectedCash || location?.expectedCash || 0
+  const calcTotalCash = Number(s.A) + Number(s.B) + Number(s.C) + Number(s.D) + Number(s.E) + Number(s.F) + Number(s.G) - Number(holdoverAmt)
+  const calcTotalFund = calcTotalCash + Number(s.H) + Number(s.I) + Number(coinTransitAmt)
+  const calcExpectedCash = Number(sub.expectedCash || location?.expectedCash || (location as unknown as { expected_cash?: number })?.expected_cash || IMPREST)
   const calcVariance = calcTotalFund - calcExpectedCash
   const calcVariancePct = calcExpectedCash > 0 ? (calcVariance / calcExpectedCash) * 100 : 0
   const tolerance = location?.tolerancePct ?? 5

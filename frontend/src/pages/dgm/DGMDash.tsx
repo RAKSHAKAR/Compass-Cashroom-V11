@@ -309,17 +309,21 @@ export default function DGMDash({ dgmName, locationIds, ctx, onNavigate }: Props
   }, [allRecords])
 
   // ── KPIs ──────────────────────────────────────────────────────────────
-  const curMY        = `${curYear}-${String(curMonth + 1).padStart(2, '0')}`
-  const visitedNow   = locationIds.filter(id => visitMap.has(`${id}|${curMY}`)).length
-  const remainingNow = locationIds.length - visitedNow
-  const overdueTotal = locationIds.filter(id => {
+  const curMY          = `${curYear}-${String(curMonth + 1).padStart(2, '0')}`
+  const filteredLocIds = locationFilter === 'all' ? locationIds : [locationFilter]
+  
+  const visitedNow   = filteredLocIds.filter(id => visitMap.has(`${id}|${curMY}`)).length
+  const remainingNow = filteredLocIds.length - visitedNow
+  const overdueTotal = filteredLocIds.filter(id => {
     for (let m = 0; m < curMonth; m++) {
       const my = `${curYear}-${String(m + 1).padStart(2, '0')}`
       if (!visitMap.has(`${id}|${my}`)) return true
     }
     return false
   }).length
-  const missedCount = allRecords.filter(v => v.status === 'missed').length
+  
+  const locationRecords = locationFilter === 'all' ? allRecords : allRecords.filter(v => v.locationId === locationFilter)
+  const missedCount = locationRecords.filter(v => v.status === 'missed').length
 
   // ── Filtered rows for table ────────────────────────────────────────────
   const dashRows = useMemo(() => {
@@ -367,8 +371,8 @@ export default function DGMDash({ dgmName, locationIds, ctx, onNavigate }: Props
     if (!cSig) e.sig = 'Please sign before confirming.'
     if (Object.keys(e).length) { setCErrors(e); return }
 
-    // Fallback to 0 since observed cash is tracked via the submission form itself now
-    const obs = 0 
+    // Leave undefined to allow API backend to rely strictly on the Operator's submission total.
+    const obs = undefined 
 
     if (getToken()) {
       try {
@@ -574,7 +578,7 @@ export default function DGMDash({ dgmName, locationIds, ctx, onNavigate }: Props
                   const isFuture   = v.date > today
                   const isExpanded = expandedId === v.id
                   const expCash    = Number((loc as unknown as Record<string, number>)?.expected_cash || (loc as unknown as Record<string, number>)?.expectedCash || IMPREST)
-                  const effObsTotal = (v.observedTotal && v.observedTotal > 0) ? v.observedTotal : getSubTotalCash(v.locationId, v.date)
+                  const effObsTotal = (v.observedTotal !== undefined && v.observedTotal !== null) ? v.observedTotal : getSubTotalCash(v.locationId, v.date)
                   const variance   = effObsTotal !== null && effObsTotal !== undefined ? effObsTotal - expCash : null
                   const pct        = variance !== null && expCash > 0 ? (variance / expCash) * 100 : null
                   const varCol     = pct !== null

@@ -157,9 +157,9 @@ export default function MgrApprovals({ managerName, locationIds, onNavigate }: P
   }, [allMgrSubs, statusFilter, cutoff, reviews])
 
   // ── KPI calculations ────────────────────────────────────────────────────
-  const pendingRows   = allMgrSubs.filter(s => effectiveStatus(s) === 'pending_approval')
+  const pendingRows   = rows.filter(s => effectiveStatus(s) === 'pending_approval')
   const overdueCount  = pendingRows.filter(s => Date.now() - new Date(s.submittedAt).getTime() > 48 * 3600000).length
-  const inRange       = allMgrSubs.filter(s => new Date(s.submittedAt).getTime() >= cutoff)
+  const inRange       = rows.filter(s => new Date(s.submittedAt).getTime() >= cutoff || effectiveStatus(s) === 'pending_approval')
   const approvedCount = inRange.filter(s => effectiveStatus(s) === 'approved').length
   const rejectedCount = inRange.filter(s => effectiveStatus(s) === 'rejected').length
   const actionedInRange = inRange.filter(s => effectiveStatus(s) !== 'pending_approval')
