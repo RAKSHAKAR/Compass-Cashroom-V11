@@ -177,66 +177,42 @@ export const IMPREST = 9575.00
 
 // ── Submissions ─────────────────────────────────────────────────────────────
 export const SUBMISSIONS: Submission[] = [
-  {
-    id: 'SUB-101', locationId: 'loc-1', operatorName: 'Demo Operator', date: dMinus(0), status: 'pending_approval', source: 'FORM',
-    totalCash: 5000.00, expectedCash: 5000.00, variance: 0, variancePct: 0.0, submittedAt: isoMinus(0, 2),
-    sections: { A: 2500, B: 1000, C: 500, D: 250, E: 250, F: 500, G: 0, H: 0, I: 0 },
-    varianceException: false
-  },
-  {
-    id: 'SUB-102', locationId: 'loc-2', operatorName: 'Alice Smith', date: dMinus(0), status: 'pending_approval', source: 'FORM',
-    totalCash: 3500.00, expectedCash: 3500.00, variance: 0, variancePct: 0.0, submittedAt: isoMinus(3, 4), // Overdue SLA!
-    sections: { A: 1000, B: 1000, C: 500, D: 500, E: 500, F: 0, G: 0, H: 0, I: 0 },
-    varianceException: false
-  },
-  {
-    id: 'SUB-103', locationId: 'loc-3', operatorName: 'Charlie Davis', date: dMinus(1), status: 'approved', source: 'EXCEL',
-    totalCash: 8000.00, expectedCash: 8000.00, variance: 0, variancePct: 0, submittedAt: isoMinus(1, 6), approvedBy: 'U2', approvedByName: 'Demo Controller',
-    sections: { A: 4000, B: 2000, C: 1000, D: 500, E: 500, F: 0, G: 0, H: 0, I: 0 },
-    varianceException: false
-  },
-  {
-    id: 'SUB-104', locationId: 'loc-1', operatorName: 'Demo Operator', date: dMinus(2), status: 'rejected', source: 'FORM',
-    totalCash: 4800.00, expectedCash: 5000.00, variance: -200, variancePct: -4.0, submittedAt: isoMinus(2, 2), approvedBy: 'U2', approvedByName: 'Demo Controller',
-    rejectionReason: "Shortage in Section A. Please recount.",
-    sections: { A: 2000, B: 1000, C: 500, D: 500, E: 500, F: 0, G: 0, H: 300, I: 0 },
-    varianceException: false
-  },
-  {
-    id: 'SUB-105', locationId: 'loc-2', operatorName: 'Alice Smith', date: dMinus(3), status: 'approved', source: 'FORM',
-    totalCash: 3700.00, expectedCash: 3500.00, variance: 200, variancePct: 5.71, submittedAt: isoMinus(3), approvedBy: 'U2', approvedByName: 'Demo Controller',
-    sections: { A: 1700, B: 1000, C: 500, D: 500, E: 0, F: 0, G: 0, H: 0, I: 0 },
-    varianceException: true, varianceNote: "Found an extra $200 bill bundle under the register tray."
-  },
+  // Pending / Submissions that need action
+  { id: 'SUB-101', locationId: 'loc-1', operatorName: 'Demo Operator', date: dMinus(0), status: 'pending_approval', source: 'FORM', totalCash: 9575.00, expectedCash: 9575.00, variance: 0, variancePct: 0.0, submittedAt: isoMinus(0, 2), sections: { A: 5000, B: 2000, C: 1500, D: 500, E: 575, F: 0, G: 0, H: 0, I: 0 }, varianceException: false },
+  { id: 'SUB-102', locationId: 'loc-2', operatorName: 'Alice Smith', date: dMinus(0), status: 'pending_approval', source: 'FORM', totalCash: 12000.00, expectedCash: 12000.00, variance: 0, variancePct: 0.0, submittedAt: isoMinus(3, 4), sections: { A: 6000, B: 3000, C: 2000, D: 500, E: 500, F: 0, G: 0, H: 0, I: 0 }, varianceException: false },
+  
+  // Historical Approved
+  { id: 'SUB-103', locationId: 'loc-3', operatorName: 'Charlie Davis', date: dMinus(1), status: 'approved', source: 'EXCEL', totalCash: 8500.00, expectedCash: 8500.00, variance: 0, variancePct: 0, submittedAt: isoMinus(1, 6), approvedBy: 'U2', approvedByName: 'Demo Controller', sections: { A: 4000, B: 2000, C: 1500, D: 500, E: 500, F: 0, G: 0, H: 0, I: 0 }, varianceException: false },
+  { id: 'SUB-105', locationId: 'loc-4', operatorName: 'Demo Operator', date: dMinus(2), status: 'approved', source: 'FORM', totalCash: 15200.00, expectedCash: 15000.00, variance: 200, variancePct: 1.33, submittedAt: isoMinus(2, 3), approvedBy: 'U2', approvedByName: 'Demo Controller', sections: { A: 8000, B: 4000, C: 2000, D: 1000, E: 200, F: 0, G: 0, H: 0, I: 0 }, varianceException: true, varianceNote: "Found an extra $200 bill bundle under the register tray." },
+  
+  // Historical Rejected
+  { id: 'SUB-104', locationId: 'loc-1', operatorName: 'Demo Operator', date: dMinus(3), status: 'rejected', source: 'FORM', totalCash: 9375.00, expectedCash: 9575.00, variance: -200, variancePct: -2.08, submittedAt: isoMinus(3, 2), approvedBy: 'U2', approvedByName: 'Demo Controller', rejectionReason: "Shortage in Section A. Please recount.", sections: { A: 4800, B: 2000, C: 1500, D: 500, E: 575, F: 0, G: 0, H: 0, I: 0 }, varianceException: false },
 ]
 
 // ── Drafts ────────────────────────────────────────────────────────────────
 export const DRAFTS: Draft[] = [
-  {
-    id: 'DFT-101', locationId: 'loc-1', date: dMinus(0), savedAt: isoMinus(0, 1),
-    sections: { A: 2500, B: 500 }, totalSoFar: 3000.00
-  }
+  { id: 'DFT-101', locationId: 'loc-1', date: dMinus(0), savedAt: isoMinus(0, 1), sections: { A: 2500, B: 500 }, totalSoFar: 3000.00 }
 ]
 
 // ── Verifications ─────────────────────────────────────────────────────────
 export const VERIFICATIONS: VerificationRecord[] = [
   // Controller Visits
-  { id: 'VER-C1', locationId: 'loc-1', verifierName: 'Demo Controller', type: 'controller', date: dMinus(2), status: 'completed', observedTotal: 5000.00, dayOfWeek: new Date(dMinus(2)).getDay(), warningFlag: false, notes: 'All cash accounted for.' },
-  { id: 'VER-C2', locationId: 'loc-2', verifierName: 'Demo Controller', type: 'controller', date: dMinus(15), status: 'completed', observedTotal: 3500.00, dayOfWeek: new Date(dMinus(15)).getDay(), warningFlag: true, notes: 'DOW warning overridden.' },
+  { id: 'VER-C1', locationId: 'loc-1', verifierName: 'Demo Controller', type: 'controller', date: dMinus(2), status: 'completed', observedTotal: 9575.00, dayOfWeek: new Date(dMinus(2)).getDay(), warningFlag: false, notes: 'All cash accounted for.' },
+  { id: 'VER-C2', locationId: 'loc-2', verifierName: 'Demo Controller', type: 'controller', date: dMinus(15), status: 'completed', observedTotal: 12000.00, dayOfWeek: new Date(dMinus(15)).getDay(), warningFlag: true, notes: 'DOW warning overridden.' },
   { id: 'VER-C3', locationId: 'loc-3', verifierName: 'Demo Controller', type: 'controller', date: dMinus(1), status: 'missed', dayOfWeek: new Date(dMinus(1)).getDay(), warningFlag: false, missedReason: 'Operational conflict — staff not available', notes: '' },
   { id: 'VER-C4', locationId: 'loc-2', verifierName: 'Demo Controller', type: 'controller', date: dMinus(-2), status: 'scheduled', dayOfWeek: new Date(dMinus(-2)).getDay(), warningFlag: false, scheduledTime: '14:00', notes: '' },
   
   // DGM Visits
-  { id: 'VER-D1', locationId: 'loc-1', verifierName: 'Demo DGM', type: 'dgm', date: dMinus(10), status: 'completed', observedTotal: 5000.00, dayOfWeek: new Date(dMinus(10)).getDay(), warningFlag: false, notes: 'Routine monthly check.' },
+  { id: 'VER-D1', locationId: 'loc-1', verifierName: 'Demo DGM', type: 'dgm', date: dMinus(10), status: 'completed', observedTotal: 9575.00, dayOfWeek: new Date(dMinus(10)).getDay(), warningFlag: false, notes: 'Routine monthly check.' },
   { id: 'VER-D2', locationId: 'loc-2', verifierName: 'Demo DGM', type: 'dgm', date: dMinus(-5), status: 'scheduled', dayOfWeek: new Date(dMinus(-5)).getDay(), warningFlag: false, scheduledTime: '09:00', notes: '' },
 ]
 
 // ── Audit Events ──────────────────────────────────────────────────────────
 export const AUDIT_EVENTS: AuditEvent[] = [
   { id: 'AUD-1', eventType: 'USER_LOGIN', actor: 'Demo Admin', detail: 'User logged in to the system via Demo Mode.', timestamp: isoMinus(0, 1) },
-  { id: 'AUD-2', eventType: 'SUBMISSION_SUBMITTED', actor: 'Demo Operator', locationId: 'loc-1', detail: 'Submitted daily cash form for $5,000.00.', timestamp: isoMinus(0, 2) },
+  { id: 'AUD-2', eventType: 'SUBMISSION_SUBMITTED', actor: 'Demo Operator', locationId: 'loc-1', detail: 'Submitted daily cash form for $9,575.00.', timestamp: isoMinus(0, 2) },
   { id: 'AUD-3', eventType: 'SUBMISSION_REJECTED', actor: 'Demo Controller', locationId: 'loc-1', detail: 'Rejected submission SUB-104 due to variance.', timestamp: isoMinus(1, 5) },
-  { id: 'AUD-4', eventType: 'CONTROLLER_VERIFIED', actor: 'Demo Controller', locationId: 'loc-1', detail: 'Completed physical verification. Matched expected $5,000.00.', timestamp: isoMinus(2, 4) },
+  { id: 'AUD-4', eventType: 'CONTROLLER_VERIFIED', actor: 'Demo Controller', locationId: 'loc-1', detail: 'Completed physical verification. Matched expected $9,575.00.', timestamp: isoMinus(2, 4) },
   { id: 'AUD-5', eventType: 'CONFIG_UPDATED', actor: 'Demo Admin', detail: 'Updated global SLA threshold to 48 hours.', timestamp: isoMinus(5, 0) },
   { id: 'AUD-6', eventType: 'USER_CREATED', actor: 'Demo Admin', detail: 'Imported new user roster from Excel.', timestamp: isoMinus(10, 0) },
   { id: 'AUD-7', eventType: 'LOCATION_ADDED', actor: 'Demo Admin', detail: 'Added new location: Downtown Arena Concessions.', timestamp: isoMinus(12, 0) },
@@ -253,20 +229,22 @@ export const MISSED_EXPLANATIONS = new Map<string, ExplanationData>()
 // All other users are populated via Admin → Import Roster (persisted in localStorage).
 const DEFAULT_USERS: User[] = [
   { id: 'U5', name: 'Demo Admin', email: 'admin@compassusa.com', role: 'admin', locationIds: [], active: true },
-  { id: 'U1', name: 'Demo Operator', email: 'operator@compassusa.com', role: 'operator', locationIds: ['loc-1'], active: true },
-  { id: 'U2', name: 'Demo Controller', email: 'controller@compassusa.com', role: 'controller', locationIds: ['loc-1', 'loc-2'], active: true },
-  { id: 'U3', name: 'Demo DGM', email: 'dgm@compassusa.com', role: 'dgm', locationIds: ['loc-1', 'loc-2', 'loc-3'], active: true },
+  { id: 'U1', name: 'Demo Operator', email: 'operator@compassusa.com', role: 'operator', locationIds: ['loc-1', 'loc-4'], active: true },
+  { id: 'U2', name: 'Demo Controller', email: 'controller@compassusa.com', role: 'controller', locationIds: ['loc-1', 'loc-2', 'loc-4'], active: true },
+  { id: 'U3', name: 'Demo DGM', email: 'dgm@compassusa.com', role: 'dgm', locationIds: ['loc-1', 'loc-2', 'loc-3', 'loc-4', 'loc-5'], active: true },
   { id: 'U4', name: 'Demo RC', email: 'rc@compassusa.com', role: 'regional-controller', locationIds: [], active: true },
 ]
-// Changed storage key to 'compass_users_v2' to force a cache bust and ensure demo users are loaded
-export const USERS: User[] = loadStored<User>('compass_users_v2', DEFAULT_USERS)
+// Changed storage key to 'compass_users_v3' to force a cache bust and ensure demo users are loaded
+export const USERS: User[] = loadStored<User>('compass_users_v3', DEFAULT_USERS)
 // ── Helpers ───────────────────────────────────────────────────────────────
 export function getSubmission(locationId: string, date: string) {
+  // STRICT DEMO GUARD: Real users must never process or view mock submissions
+  if (!localStorage.getItem('compass_demo_email')) return null;
   return SUBMISSIONS.find(s => s.locationId === locationId && s.date === date) ?? null
 }
 export function getLocation(id: string) {
-  const hasToken = !!localStorage.getItem('compass_token') || !!sessionStorage.getItem('compass_token');
-  if (hasToken) {
+  const hasToken = !!localStorage.getItem('ccs_token') || !!sessionStorage.getItem('ccs_token'); // Strict check against real auth token
+  if (hasToken && !localStorage.getItem('compass_demo_email')) {
     try {
       const realLocs = JSON.parse(sessionStorage.getItem('compass_real_locations') || '[]') as Location[];
       const found = realLocs.find(l => l.id === id);

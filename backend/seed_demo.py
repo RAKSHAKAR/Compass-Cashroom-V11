@@ -413,4 +413,11 @@ Done!
 
 
 if __name__ == "__main__":
-    seed()
+    print("\n" + "="*55)
+    print(" ⚠️  DEMO SEEDING SAFELY DISABLED ⚠️")
+    print("="*55)
+    print("Demo data is now purely managed in the frontend session.")
+    print("This script has been disabled to guarantee it will never")
+    print("pollute the backend database with dummy data by mistake.")
+    print("\nTo seed REAL accounts, run: python seed.py\n")
+    # seed() is intentionally removed to protect the system.
