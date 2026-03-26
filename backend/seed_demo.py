@@ -185,8 +185,13 @@ def seed():
 
         # ── 2. Update location expected_cash values ───────────────────────────
         print("Setting expected_cash on all locations…")
-        for loc in db.query(Location).all():
-            loc.expected_cash = LOCATION_CASH.get(loc.id, 8000.00)
+        for loc_id, cash in LOCATION_CASH.items():
+            loc = db.query(Location).filter_by(id=loc_id).first()
+            if not loc:
+                loc = Location(id=loc_id, name=f"Demo Location {loc_id}", cost_center=loc_id[-4:], city="Demo City", expected_cash=cash, sla_hours=48, active=True)
+                db.add(loc)
+            else:
+                loc.expected_cash = cash
         db.commit()
 
         # ── 3. Map to Real Users (@compass.com) ─────────────────────────────

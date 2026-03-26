@@ -152,11 +152,13 @@ export function saveVerificationReview(review: VerificationReview) {
 // ── Locations ─────────────────────────────────────────────────────────────
 // Populated via Admin → Import Roster (persisted in localStorage)
 const DEFAULT_LOCATIONS: Location[] = [
-  { id: 'loc-1', name: 'Downtown District', cost_center: '1001', city: 'Metropolis', expectedCash: 5000, tolerancePct: 5, active: true },
-  { id: 'loc-2', name: 'Northside Hub', cost_center: '1002', city: 'Metropolis', expectedCash: 3500, tolerancePct: 5, active: true },
-  { id: 'loc-3', name: 'West End Cashroom', cost_center: '1003', city: 'Metropolis', expectedCash: 8000, tolerancePct: 10, active: true },
+  { id: 'loc-1', name: 'NYC - Times Square', cost_center: '1001', city: 'New York', expectedCash: 9575.00, tolerancePct: 5, active: true },
+  { id: 'loc-2', name: 'CHI - Millenium Park', cost_center: '2005', city: 'Chicago', expectedCash: 12000.00, tolerancePct: 5, active: true },
+  { id: 'loc-3', name: 'LAX - Santa Monica', cost_center: '3099', city: 'Los Angeles', expectedCash: 8500.00, tolerancePct: 5, active: true },
+  { id: 'loc-4', name: 'Tech Park Vending Route', cost_center: '4002', city: 'Austin', expectedCash: 15000.00, tolerancePct: 5, active: true },
+  { id: 'loc-5', name: 'Downtown Arena Concessions', cost_center: '5508', city: 'Denver', expectedCash: 7200.00, tolerancePct: 5, active: true },
 ]
-export const LOCATIONS: Location[] = loadStored<Location>('compass_locations', DEFAULT_LOCATIONS)
+export const LOCATIONS: Location[] = loadStored<Location>('compass_locations_v3', DEFAULT_LOCATIONS)
 
 // Helper to generate dates relative to today
 const dMinus = (days: number) => {
@@ -236,6 +238,8 @@ export const AUDIT_EVENTS: AuditEvent[] = [
   { id: 'AUD-3', eventType: 'SUBMISSION_REJECTED', actor: 'Demo Controller', locationId: 'loc-1', detail: 'Rejected submission SUB-104 due to variance.', timestamp: isoMinus(1, 5) },
   { id: 'AUD-4', eventType: 'CONTROLLER_VERIFIED', actor: 'Demo Controller', locationId: 'loc-1', detail: 'Completed physical verification. Matched expected $5,000.00.', timestamp: isoMinus(2, 4) },
   { id: 'AUD-5', eventType: 'CONFIG_UPDATED', actor: 'Demo Admin', detail: 'Updated global SLA threshold to 48 hours.', timestamp: isoMinus(5, 0) },
+  { id: 'AUD-6', eventType: 'USER_CREATED', actor: 'Demo Admin', detail: 'Imported new user roster from Excel.', timestamp: isoMinus(10, 0) },
+  { id: 'AUD-7', eventType: 'LOCATION_ADDED', actor: 'Demo Admin', detail: 'Added new location: Downtown Arena Concessions.', timestamp: isoMinus(12, 0) },
 ]
 
 // Tracks dates where the operator submitted an absence explanation (key: `${locationId}|${date}`)

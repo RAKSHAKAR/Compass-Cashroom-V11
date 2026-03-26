@@ -138,8 +138,10 @@ def seed_users(db: Session):
     for u in USERS:
         existing = db.query(User).filter(User.email == u["email"]).first()
         if existing:
+            # Force password update to ensure login works even if DB was stale
+            existing.hashed_password = hash_password(DEMO_PASSWORD)
             skipped += 1
-            print(f"  skip user {u['email']} (already exists)")
+            print(f"  skip user {u['email']} (already exists, password updated)")
             continue
         user = User(
             email=u["email"],

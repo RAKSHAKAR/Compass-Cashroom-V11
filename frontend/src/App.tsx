@@ -543,12 +543,11 @@ export default function App() {
     })
     .finally(() => setLoading(false))
 
-  const timer = timerRef.current
-
   return () => {
-    if (timer) clearTimeout(timer)
-  }
-}, [])
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        if (timerRef.current) clearTimeout(timerRef.current)
+      }
+    }, [])
 
   function handleLogin(userId: string, role: Role, name: string, locationIds: string[], isOffline: boolean) {
     setAuth({ userId, role, name, locationIds, isOffline })

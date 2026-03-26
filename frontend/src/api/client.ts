@@ -30,7 +30,11 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   // STRICT DEMO MODE BLOCK: Never call backend if demo user
   if (localStorage.getItem('compass_demo_email')) {
     console.warn(`[Demo Mode] Blocked outbound API call to ${path}`)
-    throw new TypeError('Failed to fetch') // Simulates network error for UI to use local mock data
+    // Prevent UI errors on form submissions / imports in Demo Mode
+    if (method !== 'GET') {
+      return Promise.resolve({ success: true, detail: "Simulated success in Demo Mode" }) as unknown as Promise<T>
+    }
+    throw new TypeError('Failed to fetch') // Simulates network error for UI to use local mock GET data
   }
 
   const token = getToken()
